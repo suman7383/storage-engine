@@ -95,6 +95,12 @@ func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte) {
 	return rec
 }
 
+// TODO:
+// Decodes the encoded record to WALRecord
+func decodeRecord(rec []byte) *WALRecord {
+
+}
+
 type WAL struct {
 	fd      *os.File
 	nextSeq uint64
@@ -115,6 +121,11 @@ func (w *WAL) Write(key, value []byte) (uint64, error) {
 
 		return seq, nil
 	}
+}
+
+// TODO
+func (w *WAL) Delete(key []byte) {
+
 }
 
 // write is responsible for writing to the WAL.
