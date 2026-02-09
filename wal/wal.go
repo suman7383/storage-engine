@@ -9,19 +9,27 @@ import (
 	"sync"
 )
 
-//
 // -------------------------------------------------------------------------------
 //
-// write operation -> wal -> (if successful) -> memtable -> finally returns seq number
-// memtable -> (if full) -> sstable -> updated latest seq number(for checkpointing)
+// Write path:
+// write operation -> append to WAL -> fsync WAL (commit point) -> apply to MemTable
+// -> return sequence number
 //
-// In a separate goroutine, frequently check for conditions and fsync wal
-// condition : 1> more than ~5 ms
-// 			   2> or some size reached
-// block the wal from writing(mutex) when doing this
+// Flush / checkpoint path:
+// MemTable -> (when full) -> flush to SSTable (fsync SSTable)
+// -> update last_flushed_seq (checkpoint metadata)
+//
+// WAL fsync strategy:
+// WAL entries are appended immediately.
+// fsync may be done via group commit in a separate goroutine,
+// triggered by:
+//   1) elapsed time threshold (e.g. ~5ms), or
+//   2) accumulated WAL size threshold
+//
+// During fsync, WAL writes are synchronized (e.g. via mutex) to
+// ensure sequence numbers are only consumed after durability.
 //
 // -------------------------------------------------------------------------------
-//
 
 const MaxWALRecordSize = 1 * 1024 * 1024 // 1 MB
 
@@ -39,6 +47,8 @@ const (
 	OpDelete OpType = 2
 )
 
+var ErrRecordTooLarge = errors.New("record too large")
+
 // Encodes the record to the below format:
 //
 // | record_len  | uint32 (Total bytes after this field)
@@ -49,7 +59,7 @@ const (
 // | key bytes   |
 // | value bytes |
 // | checksum    | uint32 (CRC32 of everything above except record_len
-func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte) {
+func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte, err error) {
 	keyLen, valueLen := uint32(len(key)), uint32(len(value))
 
 	// Calculate record_len (everything except record_len itself)
@@ -61,6 +71,10 @@ func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte) {
 			int(keyLen) +
 			int(valueLen) +
 			4 // checksum
+
+	if recLen > MaxWALRecordSize {
+		return nil, ErrRecordTooLarge
+	}
 
 	rec = make([]byte, recLen+4) // Total size = record_len field + record_len bytes
 
@@ -96,14 +110,13 @@ func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte) {
 	checksum := crc32.ChecksumIEEE(rec[4:offset])
 	binary.LittleEndian.PutUint32(rec[offset:offset+4], checksum)
 
-	return rec
+	return rec, nil
 }
 
 var ErrPartialWrite = errors.New("partial write detected")
 var ErrCorruptRecord = errors.New("corrupt record detected")
 var ErrRecordMalformed = errors.New("malformed record detected")
 
-// TODO:
 // Decodes the encoded record to WALRecord
 func decodeRecord(r io.Reader) (rec *WALRecord, bytesRead int, err error) {
 	// read 4 bytes(record length field)
@@ -228,7 +241,10 @@ func (w *WAL) Delete(key []byte) {
 func (w *WAL) write(op OpType, key, value []byte) (uint64, error) {
 	seq := w.nextSeq
 
-	rec := encodeRecord(seq, op, key, value)
+	rec, err := encodeRecord(seq, op, key, value)
+	if err != nil {
+		return 0, err
+	}
 
 	if _, err := w.fd.Write(rec); err != nil {
 		return 0, err
