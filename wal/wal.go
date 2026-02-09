@@ -219,7 +219,7 @@ type WAL struct {
 // Write creates a WALRecord with the data passed and calls the internal write
 // function. If successfull, it returns the seq number, else it returns 0, error
 // describing the error that occured
-func (w *WAL) Write(key, value []byte) (uint64, error) {
+func (w *WAL) Put(key, value []byte) (uint64, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -233,8 +233,17 @@ func (w *WAL) Write(key, value []byte) (uint64, error) {
 }
 
 // TODO
-func (w *WAL) Delete(key []byte) {
+func (w *WAL) Delete(key []byte) (uint64, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
+	if seq, err := w.write(OpDelete, key, nil); err != nil {
+		return 0, err
+	} else {
+		w.nextSeq++
+
+		return seq, nil
+	}
 }
 
 // write is responsible for writing to the WAL.
