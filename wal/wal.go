@@ -216,7 +216,7 @@ type WAL struct {
 	mu      sync.Mutex // Protects concurrent appends(for now we have single writer)
 }
 
-// Write creates a WALRecord with the data passed and calls the internal write
+// Put creates a WALRecord with the data passed and calls the internal write
 // function. If successfull, it returns the seq number, else it returns 0, error
 // describing the error that occured
 func (w *WAL) Put(key, value []byte) (seq uint64, err error) {
