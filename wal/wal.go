@@ -31,7 +31,8 @@ import (
 //
 // -------------------------------------------------------------------------------
 
-const MaxWALRecordSize = 1 * 1024 * 1024 // 1 MB
+const MaxWALRecordSize = 1 * 1024 * 1024   // 1 MB
+const MaxWALSegmentSize = 64 * 1024 * 1024 // 64 MB
 
 type WALRecord struct {
 	Seq   uint64
@@ -59,7 +60,7 @@ var ErrRecordTooLarge = errors.New("record too large")
 // | key bytes   |
 // | value bytes |
 // | checksum    | uint32 (CRC32 of everything above except record_len
-func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte, err error) {
+func encodeRecord(seq uint64, op OpType, key, value []byte) (rec_size uint64, rec []byte, err error) {
 	keyLen, valueLen := uint32(len(key)), uint32(len(value))
 
 	// Calculate record_len (everything except record_len itself)
@@ -73,7 +74,7 @@ func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte, err err
 			4 // checksum
 
 	if recLen > MaxWALRecordSize {
-		return nil, ErrRecordTooLarge
+		return 0, nil, ErrRecordTooLarge
 	}
 
 	rec = make([]byte, recLen+4) // Total size = record_len field + record_len bytes
@@ -110,7 +111,7 @@ func encodeRecord(seq uint64, op OpType, key, value []byte) (rec []byte, err err
 	checksum := crc32.ChecksumIEEE(rec[4:offset])
 	binary.LittleEndian.PutUint32(rec[offset:offset+4], checksum)
 
-	return rec, nil
+	return uint64(recLen + 4), rec, nil
 }
 
 var ErrPartialWrite = errors.New("partial write detected")
@@ -210,10 +211,26 @@ func decodeRecord(r io.Reader) (rec *WALRecord, bytesRead int, err error) {
 	return rec, bytesRead, nil
 }
 
+type WALSegmentMeta struct {
+	StartSeq uint64
+	EndSeq   uint64
+	State    WALState
+}
+
+type WALState string
+
+const (
+	WALSealed WALState = "sealed"
+	WALActive WALState = "active"
+)
+
 type WAL struct {
-	fd      *os.File
-	nextSeq uint64
-	mu      sync.Mutex // Protects concurrent appends(for now we have single writer)
+	fd                *os.File
+	nextSeq           uint64
+	mu                sync.Mutex       // Protects concurrent appends(for now we have single writer)
+	segments          []WALSegmentMeta // Meta-data about all wal segments
+	active            WALSegmentMeta   // Meta data about current active wal segments
+	ActiveSegmentSize uint64           // Size of the current WAL
 }
 
 // Put creates a WALRecord with the data passed and calls the internal write
@@ -249,7 +266,7 @@ func (w *WAL) Delete(key []byte) (seq uint64, err error) {
 func (w *WAL) write(op OpType, key, value []byte) (uint64, error) {
 	seq := w.nextSeq
 
-	rec, err := encodeRecord(seq, op, key, value)
+	n, rec, err := encodeRecord(seq, op, key, value)
 	if err != nil {
 		return 0, err
 	}
@@ -264,5 +281,22 @@ func (w *WAL) write(op OpType, key, value []byte) (uint64, error) {
 		return 0, err
 	}
 
+	// Update the activeSegmentSize and endSeq
+	w.updateSizeAndEndSeq(n, seq)
+
 	return seq, nil
+}
+
+// Updates the activeSegmentSize and the EndSeq of the active WAL segment
+func (w *WAL) updateSizeAndEndSeq(delta uint64, endSeq uint64) {
+	w.addActiveSegmentSize(delta)
+	w.updateEndSeq(endSeq)
+}
+
+func (w *WAL) addActiveSegmentSize(delta uint64) {
+	w.ActiveSegmentSize += delta
+}
+
+func (w *WAL) updateEndSeq(end uint64) {
+	w.active.EndSeq = end
 }
