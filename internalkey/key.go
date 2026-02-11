@@ -71,6 +71,10 @@ func (k Key) Seq() uint64 {
 	return k.seq
 }
 
+func (k Key) UserKey() []byte {
+	return k.userKey
+}
+
 func Lookupkey(userKey []byte) Key {
 	return NewKey(userKey, math.MaxUint64, KeyPut)
 }
