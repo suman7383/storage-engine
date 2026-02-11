@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/suman7383/storage-engine/internalkey"
+	"github.com/suman7383/storage-engine/snapshot"
 )
 
 const MAX_LEVEL = 16
@@ -105,6 +106,43 @@ func (s *Skiplist) Search(key internalkey.Key) (*Node, bool) {
 
 	if x.Key.IsPut() {
 		return x, true
+	}
+
+	return nil, false
+}
+
+func (s *Skiplist) SearchWithSnapshot(key internalkey.Key, snapshot snapshot.Snapshot) (*Node, bool) {
+	x := s.head
+	level := s.maxHeight - 1
+
+	for level >= 0 {
+		for x.next[level] != nil && x.next[level].Key.Compare(key) < 0 {
+			x = x.next[level]
+		}
+
+		level -= 1
+	}
+
+	x = x.next[0]
+
+	for x != nil {
+
+		if !x.Key.Equal(key) {
+			return nil, false
+		}
+
+		if x.Key.Seq() > snapshot.Seq() {
+			x = x.next[0]
+			continue
+		}
+
+		if x.Key.IsDelete() {
+			return nil, false
+		}
+
+		if x.Key.IsPut() {
+			return x, true
+		}
 	}
 
 	return nil, false
