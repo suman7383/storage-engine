@@ -3,10 +3,12 @@ package memtable
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 
 	"github.com/suman7383/storage-engine/internalkey"
+	"github.com/suman7383/storage-engine/snapshot"
 )
 
 func TestInsertAndSearch(t *testing.T) {
@@ -156,6 +158,124 @@ func TestHeightDistribution(t *testing.T) {
 		t.Fatalf("unexpected average height: %f", avg)
 	}
 }
+
+// ---------------------------------
+//		Test with snapshot
+// ---------------------------------
+
+func newKey(userKey string, seq uint64, kind internalkey.KeyType) internalkey.Key {
+	return internalkey.NewKey([]byte(userKey), seq, kind)
+}
+
+func newSnapshot(seq uint64) snapshot.Snapshot {
+	return snapshot.NewSnapshot(seq)
+}
+
+func TestSnapshotReturnsCorrectVersion(t *testing.T) {
+	sl := NewSkipList()
+
+	sl.Insert(newKey("a", 1, internalkey.KeyPut), []byte("v1"))
+	sl.Insert(newKey("a", 2, internalkey.KeyPut), []byte("v2"))
+	sl.Insert(newKey("a", 3, internalkey.KeyPut), []byte("v3"))
+
+	lookup := newKey("a", math.MaxUint64, internalkey.KeyPut)
+	snap := newSnapshot(2)
+
+	node, found := sl.SearchWithSnapshot(lookup, snap)
+	if !found {
+		t.Fatalf("expected version at seq 2")
+	}
+
+	if node.Key.Seq() != 2 {
+		t.Fatalf("expected seq 2, got %d", node.Key.Seq())
+	}
+}
+
+func TestSnapshotSkipsNewerVersions(t *testing.T) {
+	sl := NewSkipList()
+
+	sl.Insert(newKey("a", 1, internalkey.KeyPut), []byte("v1"))
+	sl.Insert(newKey("a", 2, internalkey.KeyPut), []byte("v2"))
+
+	lookup := newKey("a", math.MaxUint64, internalkey.KeyPut)
+	snap := newSnapshot(1)
+
+	node, found := sl.SearchWithSnapshot(lookup, snap)
+	if !found {
+		t.Fatalf("expected version at seq 1")
+	}
+
+	if node.Key.Seq() != 1 {
+		t.Fatalf("expected seq 1, got %d", node.Key.Seq())
+	}
+}
+
+func TestSnapshotRespectsDelete(t *testing.T) {
+	sl := NewSkipList()
+
+	sl.Insert(newKey("a", 1, internalkey.KeyPut), []byte("v1"))
+	sl.Insert(newKey("a", 2, internalkey.KeyDelete), nil)
+
+	lookup := newKey("a", math.MaxUint64, internalkey.KeyPut)
+	snap := newSnapshot(2)
+
+	_, found := sl.SearchWithSnapshot(lookup, snap)
+	if found {
+		t.Fatalf("expected key to be deleted at snapshot 2")
+	}
+}
+
+func TestSnapshotBeforeDeleteSeesValue(t *testing.T) {
+	sl := NewSkipList()
+
+	sl.Insert(newKey("a", 1, internalkey.KeyPut), []byte("v1"))
+	sl.Insert(newKey("a", 2, internalkey.KeyDelete), nil)
+
+	lookup := newKey("a", math.MaxUint64, internalkey.KeyPut)
+	snap := newSnapshot(1)
+
+	node, found := sl.SearchWithSnapshot(lookup, snap)
+	if !found {
+		t.Fatalf("expected value at snapshot 1")
+	}
+
+	if node.Key.Seq() != 1 {
+		t.Fatalf("expected seq 1, got %d", node.Key.Seq())
+	}
+}
+
+func TestSnapshotBeforeAnyWrite(t *testing.T) {
+	sl := NewSkipList()
+
+	sl.Insert(newKey("a", 1, internalkey.KeyPut), []byte("v1"))
+
+	lookup := newKey("a", math.MaxUint64, internalkey.KeyPut)
+	snap := newSnapshot(0)
+
+	_, found := sl.SearchWithSnapshot(lookup, snap)
+	if found {
+		t.Fatalf("expected not found for snapshot 0")
+	}
+}
+
+func TestSnapshotStopsAtDifferentUserKey(t *testing.T) {
+	sl := NewSkipList()
+
+	sl.Insert(newKey("a", 1, internalkey.KeyPut), []byte("v1"))
+	sl.Insert(newKey("b", 2, internalkey.KeyPut), []byte("v2"))
+
+	lookup := newKey("a", math.MaxUint64, internalkey.KeyPut)
+	snap := newSnapshot(10)
+
+	node, found := sl.SearchWithSnapshot(lookup, snap)
+	if !found || node.Key.UserKey() == nil {
+		t.Fatalf("expected to find key a only")
+	}
+}
+
+//------------------------------------------
+// 			BENCHMARK
+// -----------------------------------------
 
 func BenchmarkInsert(b *testing.B) {
 	b.ReportAllocs()
