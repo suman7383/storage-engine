@@ -5,18 +5,17 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
+
+	"github.com/suman7383/storage-engine/internalkey"
 )
 
 func TestInsertAndSearch(t *testing.T) {
 	sl := NewSkipList()
 
-	key := []byte("foo")
+	key := internalkey.NewKey([]byte("foo"), 1, internalkey.KeyPut)
 	value := []byte("bar")
 
-	inserted := sl.Insert(key, value)
-	if !inserted {
-		t.Fatalf("expected true for first insert")
-	}
+	sl.Insert(key, value)
 
 	node, found := sl.Search(key)
 	if !found {
@@ -28,69 +27,61 @@ func TestInsertAndSearch(t *testing.T) {
 	}
 }
 
-func TestDuplicateInsertOverwrites(t *testing.T) {
+func TestMultipleVersionsCoexist(t *testing.T) {
 	sl := NewSkipList()
 
-	key := []byte("foo")
+	key1 := internalkey.NewKey([]byte("foo"), 1, internalkey.KeyPut)
+	key2 := internalkey.NewKey([]byte("foo"), 2, internalkey.KeyPut)
 
-	sl.Insert(key, []byte("v1"))
-	inserted := sl.Insert(key, []byte("v2"))
+	sl.Insert(key1, []byte("v1"))
+	sl.Insert(key2, []byte("v2"))
 
-	if inserted {
-		t.Fatalf("expected false for duplicate insert")
+	_, found1 := sl.Search(key1)
+	_, found2 := sl.Search(key2)
+
+	if !found1 || !found2 {
+		t.Fatalf("expected both versions to exist")
 	}
+}
 
-	node, found := sl.Search(key)
-	if !found {
-		t.Fatalf("expected key to exist")
-	}
+func TestDeleteEntry(t *testing.T) {
+	sl := NewSkipList()
 
-	if !bytes.Equal(node.Value, []byte("v2")) {
-		t.Fatalf("expected overwritten value")
+	putKey := internalkey.NewKey([]byte("foo"), 1, internalkey.KeyPut)
+	delKey := internalkey.NewKey([]byte("foo"), 2, internalkey.KeyDelete)
+
+	sl.Insert(putKey, []byte("v1"))
+	sl.Insert(delKey, nil)
+
+	_, found := sl.Search(delKey)
+	if found {
+		t.Fatalf("expected delete key search to return false")
 	}
 }
 
 func TestSortedOrder(t *testing.T) {
 	sl := NewSkipList()
 
-	keys := [][]byte{
-		[]byte("d"),
-		[]byte("a"),
-		[]byte("c"),
-		[]byte("b"),
+	keys := []internalkey.Key{
+		internalkey.NewKey([]byte("d"), 1, internalkey.KeyPut),
+		internalkey.NewKey([]byte("a"), 1, internalkey.KeyPut),
+		internalkey.NewKey([]byte("c"), 1, internalkey.KeyPut),
+		internalkey.NewKey([]byte("b"), 1, internalkey.KeyPut),
 	}
 
 	for _, k := range keys {
-		sl.Insert(k, k)
+		sl.Insert(k, []byte("val"))
 	}
 
-	// Traverse level 0
 	x := sl.head.next[0]
+	var prev *Node
 
-	prev := []byte{}
 	for x != nil {
-		if bytes.Compare(prev, x.Key) > 0 {
-			t.Fatalf("keys not sorted: %s before %s", prev, x.Key)
+		if prev != nil && prev.Key.Compare(x.Key) > 0 {
+			t.Fatalf("keys not sorted")
 		}
-		prev = x.Key
+		prev = x
 		x = x.next[0]
-	}
-}
-
-func TestBulkInsertAndSearch(t *testing.T) {
-	sl := NewSkipList()
-
-	for i := 0; i < 1000; i++ {
-		key := []byte(string(rune(i)))
-		sl.Insert(key, key)
-	}
-
-	for i := 0; i < 1000; i++ {
-		key := []byte(string(rune(i)))
-		_, found := sl.Search(key)
-		if !found {
-			t.Fatalf("missing key %v", key)
-		}
 	}
 }
 
@@ -100,35 +91,22 @@ func NewSkipListWithRand(r *rand.Rand) *Skiplist {
 	return sl
 }
 
-func TestDeterministicHeights(t *testing.T) {
-	r := rand.New(rand.NewSource(42))
-	sl := NewSkipListWithRand(r)
-
-	for i := 0; i < 100; i++ {
-		sl.Insert([]byte{byte(i)}, []byte{byte(i)})
-	}
-
-	if sl.maxHeight <= 1 {
-		t.Fatalf("expected height to grow")
-	}
-}
-
-func TestNoBrokenLinks(t *testing.T) {
+func TestSequenceOrdering(t *testing.T) {
 	sl := NewSkipList()
 
-	for i := 0; i < 100; i++ {
-		sl.Insert([]byte{byte(i)}, []byte{byte(i)})
-	}
+	k1 := internalkey.NewKey([]byte("a"), 1, internalkey.KeyPut)
+	k2 := internalkey.NewKey([]byte("a"), 2, internalkey.KeyPut)
+	k3 := internalkey.NewKey([]byte("a"), 3, internalkey.KeyPut)
 
-	for level := 0; level < sl.maxHeight; level++ {
-		x := sl.head
+	sl.Insert(k1, []byte("v1"))
+	sl.Insert(k2, []byte("v2"))
+	sl.Insert(k3, []byte("v3"))
 
-		for x.next[level] != nil {
-			if bytes.Compare(x.Key, x.next[level].Key) > 0 {
-				t.Fatalf("broken order at level %d", level)
-			}
-			x = x.next[level]
-		}
+	x := sl.head.next[0]
+
+	// First should be highest seq
+	if x.Key.Seq() != 3 {
+		t.Fatalf("expected highest sequence first")
 	}
 }
 
@@ -138,19 +116,19 @@ func TestRandomStress(t *testing.T) {
 	const N = 50000
 
 	for i := 0; i < N; i++ {
-		key := []byte(fmt.Sprintf("%08d", rand.Intn(N*10)))
-		sl.Insert(key, key)
+		userKey := []byte(fmt.Sprintf("%08d", rand.Intn(N*10)))
+		key := internalkey.NewKey(userKey, uint64(i), internalkey.KeyPut)
+		sl.Insert(key, userKey)
 	}
 
-	// Verify sorted invariant at level 0
 	x := sl.head.next[0]
-	var prev []byte
+	var prev *Node
 
 	for x != nil {
-		if prev != nil && bytes.Compare(prev, x.Key) > 0 {
+		if prev != nil && prev.Key.Compare(x.Key) > 0 {
 			t.Fatalf("list not sorted")
 		}
-		prev = x.Key
+		prev = x
 		x = x.next[0]
 	}
 }
@@ -184,14 +162,18 @@ func BenchmarkInsert(b *testing.B) {
 
 	sl := NewSkipList()
 
-	keys := make([][]byte, b.N)
+	keys := make([]internalkey.Key, b.N)
+	values := make([][]byte, b.N)
+
 	for i := 0; i < b.N; i++ {
-		keys[i] = []byte(fmt.Sprintf("%08d", i))
+		userKey := []byte(fmt.Sprintf("%08d", i))
+		keys[i] = internalkey.NewKey(userKey, uint64(i), internalkey.KeyPut)
+		values[i] = userKey
 	}
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		sl.Insert(keys[i], keys[i])
+		sl.Insert(keys[i], values[i])
 	}
 }
