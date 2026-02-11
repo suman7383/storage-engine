@@ -1,10 +1,11 @@
 package memtable
 
 import (
-	"bytes"
 	"math/bits"
 	"math/rand"
 	"time"
+
+	"github.com/suman7383/storage-engine/internalkey"
 )
 
 const MAX_LEVEL = 16
@@ -35,14 +36,14 @@ const MAX_LEVEL = 16
 //	next[0] → 40
 //	next[1] → 50
 type Node struct {
-	Key   []byte
+	Key   internalkey.Key
 	Value []byte // nil for header/upper levels. Data for bottom level
 
 	height int     // number of levels this node spans
 	next   []*Node // forward pointers, one per level
 }
 
-func NewNode(key, value []byte, height int) *Node {
+func NewNode(key internalkey.Key, value []byte, height int) *Node {
 	n := &Node{
 		Key:    key,
 		Value:  value,
@@ -84,12 +85,12 @@ func NewSkipList() *Skiplist {
 }
 
 // TODO
-func (s *Skiplist) Search(key []byte) (*Node, bool) {
+func (s *Skiplist) Search(key internalkey.Key) (*Node, bool) {
 	x := s.head
 	level := s.maxHeight - 1
 
 	for level >= 0 {
-		for x.next[level] != nil && bytes.Compare(x.next[level].Key, key) < 0 {
+		for x.next[level] != nil && x.next[level].Key.Compare(key) < 0 {
 			x = x.next[level]
 		}
 
@@ -98,28 +99,26 @@ func (s *Skiplist) Search(key []byte) (*Node, bool) {
 
 	x = x.next[0]
 
-	if x != nil && bytes.Equal(x.Key, key) {
+	if x == nil || !x.Key.Equal(key) || x.Key.IsDelete() {
+		return nil, false
+	}
+
+	if x.Key.IsPut() {
 		return x, true
 	}
 
 	return nil, false
 }
 
-func (s *Skiplist) Insert(key, value []byte) bool {
+func (s *Skiplist) Insert(key internalkey.Key, value []byte) bool {
 	update := make([]*Node, MAX_LEVEL)
 	x := s.head
 
 	for level := s.maxHeight - 1; level >= 0; level-- {
-		for x.next[level] != nil && bytes.Compare(x.next[level].Key, key) < 0 {
+		for x.next[level] != nil && x.next[level].Key.Compare(key) < 0 {
 			x = x.next[level]
 		}
 		update[level] = x
-	}
-
-	if update[0].next[0] != nil && bytes.Equal(update[0].next[0].Key, key) {
-		update[0].next[0].Value = value
-
-		return false
 	}
 
 	nodeHeight := s.randomHeight()
