@@ -85,7 +85,6 @@ func NewSkipList() *Skiplist {
 	return sl
 }
 
-// TODO
 func (s *Skiplist) Search(key internalkey.Key) (*Node, bool) {
 	x := s.head
 	level := s.maxHeight - 1
@@ -148,7 +147,9 @@ func (s *Skiplist) SearchWithSnapshot(key internalkey.Key, snapshot snapshot.Sna
 	return nil, false
 }
 
-func (s *Skiplist) Insert(key internalkey.Key, value []byte) bool {
+// Insert inserts the key, value to the skiplist and returns the height of the newNode
+// iserted
+func (s *Skiplist) Insert(key internalkey.Key, value []byte) int {
 	update := make([]*Node, MAX_LEVEL)
 	x := s.head
 
@@ -175,7 +176,7 @@ func (s *Skiplist) Insert(key internalkey.Key, value []byte) bool {
 	}
 
 	s.size++
-	return true
+	return newNode.height
 }
 
 func (s *Skiplist) randomHeight() int {
