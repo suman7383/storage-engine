@@ -29,6 +29,7 @@ var ErrMemtableFrozen = errors.New("memtable is frozen and in read-only state. C
 //
 // It returns the seq number of the appended record
 // and error if any.
+// Apply is not concurrent safe. The caller must ensure this before using this
 func (m *Memtable) Apply(userKey, value []byte, seq uint64) (uint64, error) {
 	if m.isFrozen {
 		return 0, ErrMemtableFrozen
@@ -44,6 +45,8 @@ func (m *Memtable) Apply(userKey, value []byte, seq uint64) (uint64, error) {
 
 // searches the skiplist and returns the node
 // ok is true if found else it returns nil, false
+//
+// Get always returns the latest version of the key
 func (m *Memtable) Get(userKey []byte) (rec *Node, ok bool) {
 	lk := internalkey.Lookupkey(userKey)
 
@@ -51,7 +54,10 @@ func (m *Memtable) Get(userKey []byte) (rec *Node, ok bool) {
 }
 
 // searches the skiplist useing the snapshot to return the latest version <= snapshot.
-// It returns node and ok is true if found else it returns nil, false
+// It returns node and ok is true if found else it returns nil, false.
+//
+// GetWithSnapshot returns the record w.r.t userKey whose seq no <= snapshot's seq no.
+// It is safe for concurrent reads
 func (m *Memtable) GetWithSnapshot(userKey []byte, snapshot snapshot.Snapshot) (rec *Node, ok bool) {
 	lk := internalkey.Lookupkey(userKey)
 
