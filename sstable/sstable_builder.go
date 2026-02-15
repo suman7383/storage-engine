@@ -38,6 +38,7 @@ type SstBuilder struct {
 // -> (if block size exceeded) -> flush block
 func (s *SstBuilder) Add(key, value []byte, seq uint64, kint uint8) error {
 
+	return nil
 }
 
 // TODO:
@@ -45,7 +46,7 @@ func (s *SstBuilder) Add(key, value []byte, seq uint64, kint uint8) error {
 // -> append index entry -> clear block buffer
 // -> reset block first key/last key
 func (s *SstBuilder) flushBlock() error {
-
+	return nil
 }
 
 // TODO:
