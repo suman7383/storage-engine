@@ -36,7 +36,14 @@ type SstBuilder struct {
 // Encode entry -> Append to block buffer -> update lastKey
 // -> (if first entry in block) -> set firstKey
 // -> (if block size exceeded) -> flush block
-func (s *SstBuilder) Add(key, value []byte, seq uint64, kint uint8) error {
+func (s *SstBuilder) Add(key, value []byte, seq uint64, kind uint8) error {
+	b := EncodeEntry(key, value, seq, kind)
+
+	s.block.buff = append(s.block.buff, b...)
+
+	if len(s.block.buff) >= s.block.sizeLimit {
+		// TODO: Flush the data
+	}
 
 	return nil
 }
