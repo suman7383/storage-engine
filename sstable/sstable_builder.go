@@ -62,8 +62,8 @@ type SstBuilder struct {
 func (s *SstBuilder) Add(key, value []byte, seq uint64, kind uint8) error {
 	b := EncodeEntry(key, value, seq, kind)
 
-	// If adding the cuurent bytes results in overflow of the current block,
-	// then flush the current block and create a new block
+	// If adding the current bytes results in overflow of the current block,
+	// then flush the current block and reset the block
 	if s.block.writeOffset+len(b) > s.block.sizeLimit {
 		if err := s.handleBlockSizeExceed(); err != nil {
 			return err
