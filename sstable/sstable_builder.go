@@ -101,25 +101,16 @@ func (s *SstBuilder) Add(key, value []byte, seq uint64, kind uint8) error {
 
 // TODO
 func (s *SstBuilder) handleBlockSizeExceed() error {
-	// add index entry for the current data block
-	idx := indexEntries{
-		lastKeyOfBlock: s.block.currBlockLastKey,
-		blockOffset:    s.currOffset,
-	}
-
 	// flush the current block
-	if err := s.flushBlock(); err != nil {
+	n, err := s.flushBlock()
+	if err != nil {
 		// close the file and delete it, also either exit process(panic) or
 		// mark db as read-only as db consistency cannot be guaranteed now.
 		s.markFailed(err)
 		return err
 	}
 
-	// Append the current block index entry
-	s.indexEntries = append(s.indexEntries, idx)
-
-	// Reset the block
-	s.block.resetBlock()
+	s.currOffset += int64(n)
 
 	return nil
 }
@@ -135,19 +126,38 @@ func (s *SstBuilder) markFailed(err error) {
 	log.Fatalf("[SYSTEM] exiting due to sst failure. err: %s", err.Error())
 }
 
+// TODO:
+// Write block buffer to file -> record blockOffset
+// -> append index entry -> clear block buffer
+// -> reset block first key/last key
+// returns the bytes written to file
+func (s *SstBuilder) flushBlock() (n int, err error) {
+	// index entry for the current data block
+	idx := indexEntries{
+		lastKeyOfBlock: s.block.currBlockLastKey,
+		blockOffset:    s.currOffset,
+	}
+
+	// write block buffer to file
+	n, err = s.fd.Write(s.block.buff[:s.block.writeOffset])
+	if err != nil {
+		return 0, nil
+	}
+
+	// Append the current block index entry
+	s.indexEntries = append(s.indexEntries, idx)
+
+	// Reset the block
+	s.block.resetBlock()
+
+	return n, nil
+}
+
 func (s *SstBuilder) cleanup() {
 	s.fd.Close()
 
 	// delete the current temporary file
 	os.Remove(s.filePath)
-}
-
-// TODO:
-// Write block buffer to file -> record blockOffset
-// -> append index entry -> clear block buffer
-// -> reset block first key/last key
-func (s *SstBuilder) flushBlock() error {
-	return nil
 }
 
 // TODO:
