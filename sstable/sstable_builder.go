@@ -1,9 +1,15 @@
 package sstable
 
 import (
+	"bufio"
+	"encoding/binary"
 	"log"
 	"os"
 )
+
+// TODO: move these to somewhere else
+const maxKeySize = 1 << 10                 // bytes
+const SstMagic uint64 = 0x5353545630313031 // "SSTV0101"
 
 type indexEntries struct {
 	lastKeyOfBlock []byte
@@ -21,6 +27,7 @@ type dataBlock struct {
 func (d *dataBlock) resetBlock() {
 	// logically reset the buff
 	d.writeOffset = 0
+	d.buff = d.buff[:0]
 
 	// reset the currBlockFirstKey, currBlockLastKey
 	// length becomes 0, capacity remains same.
@@ -35,8 +42,9 @@ func (d *dataBlock) resetBlock() {
 // and dataBlock.currBlockLastKey fields with maxKeySize capacity.
 type SstBuilder struct {
 	fd         *os.File
-	filePath   string // Temp path
-	finalPath  string // final .sst path
+	bw         *bufio.Writer // maybe use default buffer size to 2 * blockSizeLimit
+	filePath   string        // Temp path
+	finalPath  string        // final .sst path
 	currOffset int64
 
 	// Block
@@ -55,7 +63,6 @@ type SstBuilder struct {
 	closed   bool
 }
 
-// TODO:
 // Encode entry -> Append to block buffer -> update lastKey
 // -> (if first entry in block) -> set firstKey
 // -> (if block size exceeded) -> flush block
@@ -99,7 +106,6 @@ func (s *SstBuilder) Add(key, value []byte, seq uint64, kind uint8) error {
 	return nil
 }
 
-// TODO
 func (s *SstBuilder) handleBlockSizeExceed() error {
 	// flush the current block
 	n, err := s.flushBlock()
@@ -132,6 +138,11 @@ func (s *SstBuilder) markFailed(err error) {
 // -> reset block first key/last key
 // returns the bytes written to file
 func (s *SstBuilder) flushBlock() (n int, err error) {
+	// If the block is empty, don't proceed further
+	if len(s.block.buff) == 0 {
+		return 0, nil
+	}
+
 	// index entry for the current data block
 	idx := indexEntries{
 		lastKeyOfBlock: s.block.currBlockLastKey,
@@ -139,7 +150,7 @@ func (s *SstBuilder) flushBlock() (n int, err error) {
 	}
 
 	// write block buffer to file
-	n, err = s.fd.Write(s.block.buff[:s.block.writeOffset])
+	n, err = s.bw.Write(s.block.buff[:s.block.writeOffset])
 	if err != nil {
 		return 0, nil
 	}
@@ -158,27 +169,118 @@ func (s *SstBuilder) cleanup() {
 
 	// delete the current temporary file
 	os.Remove(s.filePath)
+
+	s.closed = true
 }
 
 // TODO:
 // Called once after all entries added
 //
 // Flush last block(if not empty) -> write index block
-// -> write footer -> mark finished
-func (s *SstBuilder) finish() {
+// -> write footer -> rename filePath to finalPath -> mark finished
+func (s *SstBuilder) finish() error {
+	// Flush last block if not empty
+	if s.block.writeOffset > 0 {
+		if err := s.handleBlockSizeExceed(); err != nil {
+			return err
+		}
+	}
 
+	indexOffset := s.currOffset
+
+	// write index block
+	n, err := s.writeIndex()
+	// TODO: handle error
+	if err != nil {
+		return err
+	}
+
+	// write footer block
+	err = s.writeFooter(uint64(indexOffset), uint64(n))
+	// TODO: Handle error
+	if err != nil {
+		return nil
+	}
+
+	// Cleanup(flush bw, sync fd, close fd, mark closed)
+
+	// Rename the tempfile from filePath to finalPath
+
+	s.finished = true
+
+	return nil
 }
 
 // TODO:
 // Sets the index for the current file.
 // Called after writing all the blocks
-func (s *SstBuilder) writeIndex() {
+//
+// ---------- LAYOUT -----------------
+// | 	key_len (uint32) 	   |
+// | 	key bytes 		       |
+// |	block_offset (uint64)  |
+func (s *SstBuilder) writeIndex() (n int, err error) {
+	n = 0
+	baseLen := 4 + 8 // 4 bytes (key_len) + 8 bytes (block_offset)
 
+	buf := make([]byte, baseLen+maxKeySize)
+
+	for _, rec := range s.indexEntries {
+		keyLen := len(rec.lastKeyOfBlock)
+		offset := 0
+
+		binary.LittleEndian.PutUint32(buf[offset:offset+4], uint32(keyLen))
+		offset += 4
+
+		copy(buf[offset:offset+keyLen], rec.lastKeyOfBlock)
+		offset += keyLen
+
+		binary.LittleEndian.PutUint64(buf[offset:offset+8], uint64(rec.blockOffset))
+		offset += 8
+
+		nn, err := s.bw.Write(buf[:offset])
+		if err != nil {
+			return n + nn, err
+		}
+
+		n += nn // increment by bytes written
+	}
+
+	return n, nil
 }
 
 // TODO
 // Sets the footer for the current file.
 // Called after writing the index.
-func (s *SstBuilder) writeFooter() {
+//
+// Fixed size, located at end of file
+//
+//	---------- LAYOUT -----------------
+//
+// |	index_block_offset (uint64)		|
+// |	index_block_size (uint64)		|
+// |	magic_number (uint64)			| to detect file corruption, wrong file type, partial writes
+//
+// Total = 24 bytes
+func (s *SstBuilder) writeFooter(indexOffset, indexBlockSize uint64) error {
+	buf := make([]byte, 24) // index_block_offset + index_block_size + magic_number
 
+	// index offset
+	binary.LittleEndian.PutUint64(buf, indexOffset)
+	offset := 8
+
+	// index block size
+	binary.LittleEndian.PutUint64(buf[offset:offset+8], indexBlockSize)
+	offset += 8
+
+	// magic number
+	binary.LittleEndian.PutUint64(buf[offset:offset+8], SstMagic)
+	offset += 8
+
+	_, err := s.fd.Write(buf)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
