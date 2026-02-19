@@ -170,6 +170,8 @@ func (s *SstBuilder) Finish() error {
 		return err
 	}
 
+	s.currOffset += int64(n)
+
 	// write footer block
 	err = s.writeFooter(uint64(indexOffset), uint64(n))
 	if err != nil {
