@@ -3,7 +3,6 @@ package sstable
 import (
 	"bufio"
 	"encoding/binary"
-	"log"
 	"os"
 )
 
@@ -106,13 +105,12 @@ func (s *SstBuilder) Add(key, value []byte, seq uint64, kind uint8) error {
 	return nil
 }
 
+// var ErrBlockWrite = errors.New("error writing sst block")
+
 func (s *SstBuilder) handleBlockSizeExceed() error {
 	// flush the current block
 	n, err := s.flushBlock()
 	if err != nil {
-		// close the file and delete it, also either exit process(panic) or
-		// mark db as read-only as db consistency cannot be guaranteed now.
-		s.markFailed(err)
 		return err
 	}
 
@@ -121,18 +119,6 @@ func (s *SstBuilder) handleBlockSizeExceed() error {
 	return nil
 }
 
-// markFailed indicates something went wrong during either writing or flushing
-// and so the db consistency cannot be guaranteed.
-//
-// It deletes the temporary sst file created and does cleanup before exiting
-func (s *SstBuilder) markFailed(err error) {
-	// Closes the fd and deletes the temp file
-	s.cleanup()
-
-	log.Fatalf("[SYSTEM] exiting due to sst failure. err: %s", err.Error())
-}
-
-// TODO:
 // Write block buffer to file -> record blockOffset
 // -> append index entry -> clear block buffer
 // -> reset block first key/last key
@@ -149,7 +135,7 @@ func (s *SstBuilder) flushBlock() (n int, err error) {
 		blockOffset:    s.currOffset,
 	}
 
-	// write block buffer to file
+	// write block buffer to writer
 	n, err = s.bw.Write(s.block.buff[:s.block.writeOffset])
 	if err != nil {
 		return 0, nil
@@ -164,21 +150,11 @@ func (s *SstBuilder) flushBlock() (n int, err error) {
 	return n, nil
 }
 
-func (s *SstBuilder) cleanup() {
-	s.fd.Close()
-
-	// delete the current temporary file
-	os.Remove(s.filePath)
-
-	s.closed = true
-}
-
-// TODO:
 // Called once after all entries added
 //
 // Flush last block(if not empty) -> write index block
 // -> write footer -> rename filePath to finalPath -> mark finished
-func (s *SstBuilder) finish() error {
+func (s *SstBuilder) Finish() error {
 	// Flush last block if not empty
 	if s.block.writeOffset > 0 {
 		if err := s.handleBlockSizeExceed(); err != nil {
@@ -190,28 +166,27 @@ func (s *SstBuilder) finish() error {
 
 	// write index block
 	n, err := s.writeIndex()
-	// TODO: handle error
 	if err != nil {
 		return err
 	}
 
 	// write footer block
 	err = s.writeFooter(uint64(indexOffset), uint64(n))
-	// TODO: Handle error
 	if err != nil {
-		return nil
+		return err
 	}
 
-	// Cleanup(flush bw, sync fd, close fd, mark closed)
-
-	// Rename the tempfile from filePath to finalPath
+	// flush bw
+	err = s.bw.Flush()
+	if err != nil {
+		return err
+	}
 
 	s.finished = true
 
 	return nil
 }
 
-// TODO:
 // Sets the index for the current file.
 // Called after writing all the blocks
 //
@@ -249,7 +224,6 @@ func (s *SstBuilder) writeIndex() (n int, err error) {
 	return n, nil
 }
 
-// TODO
 // Sets the footer for the current file.
 // Called after writing the index.
 //
