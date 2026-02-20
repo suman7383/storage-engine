@@ -228,17 +228,22 @@ func (s *SstBuilder) writeIndex() (n int, err error) {
 //
 //	---------- LAYOUT -----------------
 //
+// |	indexEntryCount (uint32)    	| header of index block
 // |	index_block_offset (uint64)		|
 // |	index_block_size (uint64)		|
 // |	magic_number (uint64)			| to detect file corruption, wrong file type, partial writes
 //
-// Total = 24 bytes
+// Total = 28 bytes
 func (s *SstBuilder) writeFooter(indexOffset, indexBlockSize uint64) error {
-	buf := make([]byte, 24) // index_block_offset + index_block_size + magic_number
+	buf := make([]byte, 28) // index_block_offset + index_block_size + magic_number
+	offset := 0
+
+	binary.LittleEndian.PutUint32(buf[offset:offset+4], uint32(len(s.indexEntries)))
+	offset += 4
 
 	// index offset
-	binary.LittleEndian.PutUint64(buf, indexOffset)
-	offset := 8
+	binary.LittleEndian.PutUint64(buf[offset:offset+8], indexOffset)
+	offset += 8
 
 	// index block size
 	binary.LittleEndian.PutUint64(buf[offset:offset+8], indexBlockSize)

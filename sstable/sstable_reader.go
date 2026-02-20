@@ -20,17 +20,17 @@ type SstReader struct {
 	largestKey  []byte
 }
 
-const footerSize = 24 //bytes
+const footerSize = 28 //bytes
 
-func (s *SstReader) readFooter() (indexOffset, indeSize uint64, err error) {
+func (s *SstReader) readFooter() (indexEntryCount uint32, indexOffset, indeSize uint64, err error) {
 	// Seek to footer start from end
 	if _, err := s.fd.Seek(-footerSize, io.SeekEnd); err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	buf := make([]byte, footerSize)
 	if _, err := io.ReadFull(s.fd, buf); err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	return s.parseFooter(buf)
@@ -40,11 +40,15 @@ var ErrFooterCorrupt = errors.New("footer is corrupt")
 
 //	---------- LAYOUT -----------------
 //
+// |    indexCount (uint32)	   | header of index
 // |	index_block_offset (uint64)		| 8 bytes
 // |	index_block_size (uint64)		| 8 bytes
 // |	magic_number (uint64)			| 8 bytes (to detect file corruption, wrong file type, partial writes)
-func (s *SstReader) parseFooter(buf []byte) (indexOffset, indexSize uint64, err error) {
+func (s *SstReader) parseFooter(buf []byte) (indexEntryCount uint32, indexOffset, indexSize uint64, err error) {
 	offset := 0
+
+	indexEntryCount = binary.LittleEndian.Uint32(buf[offset : offset+4])
+	offset += 4
 
 	indexOffset = binary.LittleEndian.Uint64(buf[offset : offset+8])
 	offset += 8
@@ -57,10 +61,10 @@ func (s *SstReader) parseFooter(buf []byte) (indexOffset, indexSize uint64, err 
 
 	// Validate magic number
 	if magicNum != SstMagic {
-		return 0, 0, ErrFooterCorrupt
+		return 0, 0, 0, ErrFooterCorrupt
 	}
 
-	return indexOffset, indexSize, nil
+	return indexEntryCount, indexOffset, indexSize, nil
 }
 
 var ErrIndexCorrupt = errors.New("Index is corrupted")
@@ -69,7 +73,7 @@ var ErrIndexCorrupt = errors.New("Index is corrupted")
 // | 	key_len (uint32) 	   |
 // | 	key bytes 		       |
 // |	block_offset (uint64)  |
-func (s *SstReader) loadIndex(indexOffset, indexSize uint64) error {
+func (s *SstReader) loadIndex(indexEntryCount uint32, indexOffset, indexSize uint64) error {
 	if _, err := s.fd.Seek(int64(indexOffset), io.SeekStart); err != nil {
 		return err
 	}
@@ -81,6 +85,7 @@ func (s *SstReader) loadIndex(indexOffset, indexSize uint64) error {
 	}
 
 	s.indexBuf = indexBuf
+	s.indexEntries = make([]readerIndexEntries, 0, indexEntryCount)
 
 	offset := 0
 
