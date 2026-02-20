@@ -10,11 +10,6 @@ import (
 const maxKeySize = 1 << 10                 // bytes
 const SstMagic uint64 = 0x5353545630313031 // "SSTV0101"
 
-type indexEntries struct {
-	lastKeyOfBlock []byte
-	blockOffset    int64
-}
-
 type dataBlock struct {
 	buff              []byte
 	writeOffset       int
