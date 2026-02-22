@@ -57,6 +57,34 @@ type SstBuilder struct {
 	closed   bool
 }
 
+func NewSstBuilder(fd *os.File, blockSizeLimit int) *SstBuilder {
+	block := &dataBlock{
+		buff:              make([]byte, 0, blockSizeLimit),
+		writeOffset:       0,
+		sizeLimit:         blockSizeLimit,
+		currBlockFirstKey: make([]byte, 0, maxKeySize),
+		currBlockLastKey:  make([]byte, 0, maxKeySize),
+	}
+
+	return &SstBuilder{
+		fd: fd,
+		bw: bufio.NewWriter(fd),
+
+		currOffset: 0,
+
+		block: block,
+
+		indexEntries: make([]indexEntries, 0, 30), // TODO: Change the capacity from hard-coded value later
+
+		smallestKey: make([]byte, 0, maxKeySize),
+		largestKey:  make([]byte, 0, maxKeySize),
+
+		entryCount: 0,
+		finished:   false,
+		closed:     false,
+	}
+}
+
 // Encode entry -> Append to block buffer -> update lastKey
 // -> (if first entry in block) -> set firstKey
 // -> (if block size exceeded) -> flush block
