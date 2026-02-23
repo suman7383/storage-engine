@@ -20,6 +20,19 @@ type SstReader struct {
 	largestKey  []byte
 }
 
+func (s *SstReader) Get(key []byte) (value []byte) {
+	// Compare if the key lies between smallestKey and largestKey
+	// If not return early, as it is not present in this SST
+
+	// Binary search in indexEntries to find in which block key exists
+
+	// Read that data block and parse the entries
+
+	// Linear search inside the block
+
+	return nil
+}
+
 const footerSize = 28 //bytes
 
 func (s *SstReader) readFooter() (indexEntryCount uint32, indexOffset, indeSize uint64, err error) {
