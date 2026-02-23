@@ -22,10 +22,10 @@ func NewInternalKey(userKey []byte, seq uint64, kind uint8) InternalKey {
 }
 
 func (i InternalKey) Compare(to InternalKey) int {
-	return CompareInterKeys(i, to)
+	return CompareInternalKeys(i, to)
 }
 
-func CompareInterKeys(a, b InternalKey) int {
+func CompareInternalKeys(a, b InternalKey) int {
 	aLen := len(a)
 	bLen := len(b)
 
