@@ -37,14 +37,14 @@ const MAX_LEVEL = 16
 //	next[0] → 40
 //	next[1] → 50
 type Node struct {
-	Key   internalkey.Key
+	Key   internalkey.InternalKey
 	Value []byte // nil for header/upper levels. Data for bottom level
 
 	height int     // number of levels this node spans
 	next   []*Node // forward pointers, one per level
 }
 
-func NewNode(key internalkey.Key, value []byte, height int) *Node {
+func NewNode(key internalkey.InternalKey, value []byte, height int) *Node {
 	n := &Node{
 		Key:    key,
 		Value:  value,
@@ -85,7 +85,7 @@ func NewSkipList() *Skiplist {
 	return sl
 }
 
-func (s *Skiplist) Search(key internalkey.Key) (*Node, bool) {
+func (s *Skiplist) Search(key internalkey.InternalKey) (*Node, bool) {
 	x := s.head
 	level := s.maxHeight - 1
 
@@ -99,7 +99,7 @@ func (s *Skiplist) Search(key internalkey.Key) (*Node, bool) {
 
 	x = x.next[0]
 
-	if x == nil || !x.Key.Equal(key) || x.Key.IsDelete() {
+	if x == nil || !x.Key.EqualUserKeys(key) || x.Key.IsDelete() {
 		return nil, false
 	}
 
@@ -110,7 +110,7 @@ func (s *Skiplist) Search(key internalkey.Key) (*Node, bool) {
 	return nil, false
 }
 
-func (s *Skiplist) SearchWithSnapshot(key internalkey.Key, snapshot snapshot.Snapshot) (*Node, bool) {
+func (s *Skiplist) SearchWithSnapshot(key internalkey.InternalKey, snapshot snapshot.Snapshot) (*Node, bool) {
 	x := s.head
 	level := s.maxHeight - 1
 
@@ -126,7 +126,7 @@ func (s *Skiplist) SearchWithSnapshot(key internalkey.Key, snapshot snapshot.Sna
 
 	for x != nil {
 
-		if !x.Key.Equal(key) {
+		if !x.Key.EqualUserKeys(key) {
 			return nil, false
 		}
 
@@ -149,7 +149,7 @@ func (s *Skiplist) SearchWithSnapshot(key internalkey.Key, snapshot snapshot.Sna
 
 // Insert inserts the key, value to the skiplist and returns the height of the newNode
 // iserted
-func (s *Skiplist) Insert(key internalkey.Key, value []byte) int {
+func (s *Skiplist) Insert(key internalkey.InternalKey, value []byte) int {
 	update := make([]*Node, MAX_LEVEL)
 	x := s.head
 

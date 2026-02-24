@@ -34,7 +34,7 @@ func (m *Memtable) Apply(userKey, value []byte, seq uint64) (uint64, error) {
 	if m.isFrozen {
 		return 0, ErrMemtableFrozen
 	}
-	ik := internalkey.NewKey(userKey, seq, internalkey.KeyPut)
+	ik := internalkey.NewInternalKey(userKey, seq, internalkey.KeyPut)
 
 	h := m.skl.Insert(ik, value)
 
@@ -47,8 +47,8 @@ func (m *Memtable) Apply(userKey, value []byte, seq uint64) (uint64, error) {
 // ok is true if found else it returns nil, false
 //
 // Get always returns the latest version of the key
-func (m *Memtable) Get(userKey []byte) (rec *Node, ok bool) {
-	lk := internalkey.Lookupkey(userKey)
+func (m *Memtable) Get(userKey []byte, snapshotSeq uint64) (rec *Node, ok bool) {
+	lk := internalkey.MakeInternalLookupKey(userKey, snapshotSeq)
 
 	return m.skl.Search(lk)
 }
@@ -59,7 +59,7 @@ func (m *Memtable) Get(userKey []byte) (rec *Node, ok bool) {
 // GetWithSnapshot returns the record w.r.t userKey whose seq no <= snapshot's seq no.
 // It is safe for concurrent reads
 func (m *Memtable) GetWithSnapshot(userKey []byte, snapshot snapshot.Snapshot) (rec *Node, ok bool) {
-	lk := internalkey.Lookupkey(userKey)
+	lk := internalkey.MakeInternalLookupKey(userKey, snapshot.Seq())
 
 	return m.skl.SearchWithSnapshot(lk, snapshot)
 }

@@ -3,6 +3,7 @@ package internalkey
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"math"
 )
 
@@ -10,7 +11,7 @@ import (
 // | 	trailer (seq+kind)  | last 8 bytes
 type InternalKey []byte
 
-func NewInternalKey(userKey []byte, seq uint64, kind uint8) InternalKey {
+func NewInternalKey(userKey []byte, seq uint64, kind KeyType) InternalKey {
 	trailer := (seq << 8) | uint64(kind)
 
 	buf := make([]byte, len(userKey)+8)
@@ -21,28 +22,77 @@ func NewInternalKey(userKey []byte, seq uint64, kind uint8) InternalKey {
 	return buf
 }
 
+func (i InternalKey) Seq() uint64 {
+	trailer := ExtractTrailer(i)
+
+	return (trailer >> 8)
+}
+
+func (i InternalKey) UserKey() []byte {
+	return i[:len(i)-8]
+}
+
+// Checks if both the userKeys are equal
+func (i InternalKey) EqualUserKeys(to InternalKey) bool {
+	return CompareUserKeys(i, to) == 0
+}
+
+func (i InternalKey) IsDelete() bool {
+	return extractKind(i) == KeyDelete
+}
+
+func (i InternalKey) IsPut() bool {
+	return extractKind(i) == KeyPut
+}
+
+func extractKind(i InternalKey) KeyType {
+	trailerStart := len(i) - 8
+	trailer, err := decodeUint64(i[trailerStart:])
+	if err != nil {
+		panic(err)
+	}
+
+	kind := trailer & 0xff
+	return KeyType(kind)
+}
+
+var ErrInvalidByteSize = errors.New("invalid byte slice")
+
+func decodeUint64(b []byte) (uint64, error) {
+	if len(b) < 8 {
+		return 0, ErrInvalidByteSize
+	}
+
+	return binary.LittleEndian.Uint64(b), nil
+}
+
 func (i InternalKey) Compare(to InternalKey) int {
 	return CompareInternalKeys(i, to)
 }
 
-func CompareInternalKeys(a, b InternalKey) int {
+func CompareUserKeys(a, b InternalKey) int {
 	aLen := len(a)
 	bLen := len(b)
-
-	if aLen < 8 || bLen < 8 {
-		panic("invalid internal key")
-	}
 
 	userKeyA := a[:aLen-8]
 	userKeyB := b[:bLen-8]
 
-	cmp := bytes.Compare(userKeyA, userKeyB)
-	if cmp != 0 {
-		return cmp
+	return bytes.Compare(userKeyA, userKeyB)
+}
+
+func CompareInternalKeys(a, b InternalKey) int {
+
+	if len(a) < 8 || len(b) < 8 {
+		panic("invalid internal key")
 	}
 
-	trailerA := binary.LittleEndian.Uint64(a[aLen-8:])
-	trailerB := binary.LittleEndian.Uint64(b[bLen-8:])
+	cmpUserKeys := CompareUserKeys(a, b)
+	if cmpUserKeys != 0 {
+		return cmpUserKeys
+	}
+
+	trailerA := ExtractTrailer(a)
+	trailerB := ExtractTrailer(b)
 
 	if trailerA > trailerB {
 		return -1 // because Seq and kind DESC
@@ -53,6 +103,13 @@ func CompareInternalKeys(a, b InternalKey) int {
 	}
 
 	return 0
+}
+
+func ExtractTrailer(i InternalKey) uint64 {
+	if len(i) < 8 {
+		panic("invalid internal key")
+	}
+	return binary.LittleEndian.Uint64(i[len(i)-8:])
 }
 
 func MakeInternalLookupKey(userKey []byte, snapshotSeq uint64) InternalKey {
