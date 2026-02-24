@@ -1,6 +1,10 @@
 package sstable
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+
+	"github.com/suman7383/storage-engine/internalkey"
+)
 
 // Entry respresents the binary layout used for disk storage
 //
@@ -8,38 +12,31 @@ import "encoding/binary"
 //
 // | KeyLen   |
 // | ValueLen |
-// | Seq      |
-// | Kind     |
-// | Key      |
+// | InternalKey      |
 // | Value    |
 type Entry struct {
-	KeyLen   uint32 // 4 bytes
-	ValueLen uint32 // 4 bytes
-	Seq      uint64 // 8 bytes
-	Kind     uint8  // 1 byte
-	Key      []byte
-	Value    []byte
+	KeyLen      uint32 // 4 bytes
+	ValueLen    uint32 // 4 bytes
+	InternalKey []byte
+	Value       []byte
 }
 
 // Returns a Entry with the given arguments
-func NewEntry(seq uint64, kind uint8, key, value []byte) *Entry {
+func NewEntry(internalKey internalkey.InternalKey, value []byte) *Entry {
 	return &Entry{
-		KeyLen:   uint32(len(key)),
-		ValueLen: uint32(len(value)),
-		Seq:      seq,
-		Key:      key,
-		Value:    value,
-		Kind:     kind,
+		KeyLen:      uint32(len(internalKey)),
+		ValueLen:    uint32(len(value)),
+		InternalKey: internalKey,
+		Value:       value,
 	}
 }
 
 // EncodeEntry encodes to the binary layout given by the Entry struct
-func EncodeEntry(key, value []byte, seq uint64, kind uint8) []byte {
-	keyLen, valueLen := len(key), len(value)
+func EncodeEntry(internalKey internalkey.InternalKey, value []byte) []byte {
+	keyLen, valueLen := len(internalKey), len(value)
 
-	// keyLen bytes + valueLen bytes + KeyLen(4 bytes) + ValueLen(4 bytes) + Seq(8 bytes)
-	// + Kind(1 byte)
-	ebLen := keyLen + valueLen + 4 + 4 + 8 + 1
+	// InternalKeyLen bytes + valueLen bytes + KeyLen(4 bytes) + ValueLen(4 bytes)
+	ebLen := keyLen + valueLen + 4 + 4
 
 	eb := make([]byte, ebLen)
 	offset := 0
@@ -52,16 +49,8 @@ func EncodeEntry(key, value []byte, seq uint64, kind uint8) []byte {
 	binary.LittleEndian.PutUint32(eb[offset:offset+4], uint32(valueLen))
 	offset += 4
 
-	// Seq
-	binary.LittleEndian.PutUint64(eb[offset:offset+8], seq)
-	offset += 8
-
-	// Kind
-	eb[offset] = kind
-	offset += 1
-
 	// Key
-	copy(eb[offset:offset+keyLen], key)
+	copy(eb[offset:offset+keyLen], internalKey)
 	offset += keyLen
 
 	// Value
