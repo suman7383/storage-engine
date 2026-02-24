@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"encoding/binary"
 	"os"
+
+	"github.com/suman7383/storage-engine/internalkey"
 )
 
 // TODO: move these to somewhere else
@@ -88,8 +90,8 @@ func NewSstBuilder(fd *os.File, blockSizeLimit int) *SstBuilder {
 // Encode entry -> Append to block buffer -> update lastKey
 // -> (if first entry in block) -> set firstKey
 // -> (if block size exceeded) -> flush block
-func (s *SstBuilder) Add(key, value []byte, seq uint64, kind uint8) error {
-	b := EncodeEntry(key, value, seq, kind)
+func (s *SstBuilder) Add(internalKey internalkey.InternalKey, value []byte) error {
+	b := EncodeEntry(internalKey, value)
 
 	// If adding the current bytes results in overflow of the current block,
 	// then flush the current block and reset the block
@@ -106,21 +108,22 @@ func (s *SstBuilder) Add(key, value []byte, seq uint64, kind uint8) error {
 
 	// Update the first key of current block if this is the first key in the block
 	if len(s.block.currBlockFirstKey) == 0 {
-		s.block.currBlockFirstKey = append(s.block.currBlockFirstKey, key...)
+		s.block.currBlockFirstKey = append(s.block.currBlockFirstKey, internalKey...)
 	}
 
 	// Update the last key of current block
 	s.block.currBlockLastKey = s.block.currBlockLastKey[:0]
-	s.block.currBlockLastKey = append(s.block.currBlockLastKey, key...)
+	s.block.currBlockLastKey = append(s.block.currBlockLastKey, internalKey...)
 
 	// If very first entry into the sst, mark as smallest key.
 	// Assuming the memtable flush follows strict ordering
 	if s.entryCount == 0 {
-		s.smallestKey = append(s.smallestKey, key...)
+		s.smallestKey = append(s.smallestKey, internalKey...)
 	}
 
 	// Update the largestKey
-	s.largestKey = append(s.largestKey, key...)
+	s.largestKey = s.largestKey[:0]
+	s.largestKey = append(s.largestKey, internalKey...)
 
 	// update meta-data
 	s.entryCount++
