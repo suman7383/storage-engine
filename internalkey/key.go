@@ -32,6 +32,18 @@ func (i InternalKey) UserKey() []byte {
 	return i[:len(i)-8]
 }
 
+func (i InternalKey) IsLessThan(to InternalKey) bool {
+	cmp := i.Compare(to)
+
+	return cmp == -1
+}
+
+func (i InternalKey) IsGreaterThan(to InternalKey) bool {
+	cmp := i.Compare(to)
+
+	return cmp == 1
+}
+
 // Checks if both the userKeys are equal
 func (i InternalKey) EqualUserKeys(to InternalKey) bool {
 	return CompareUserKeys(i, to) == 0
@@ -66,6 +78,8 @@ func decodeUint64(b []byte) (uint64, error) {
 	return binary.LittleEndian.Uint64(b), nil
 }
 
+// Compare compares the "to" key with the key this method is called on.
+// It returns 0 if both are equal, -1 if i < to and +1 if i > to
 func (i InternalKey) Compare(to InternalKey) int {
 	return CompareInternalKeys(i, to)
 }

@@ -1,7 +1,7 @@
 package sstable
 
 type indexEntries struct {
-	lastKeyOfBlock []byte
+	lastKeyOfBlock []byte // internalKey
 	blockOffset    int64
 }
 
