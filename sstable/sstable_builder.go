@@ -15,6 +15,7 @@ const SstMagic uint64 = 0x5353545630313031 // "SSTV0101"
 type dataBlock struct {
 	buff              []byte
 	writeOffset       int
+	blockSizeBuf      []byte
 	sizeLimit         int
 	currBlockFirstKey []byte
 	currBlockLastKey  []byte
@@ -64,6 +65,7 @@ func NewSstBuilder(fd *os.File, blockSizeLimit int) *SstBuilder {
 		buff:              make([]byte, 0, blockSizeLimit),
 		writeOffset:       0,
 		sizeLimit:         blockSizeLimit,
+		blockSizeBuf:      make([]byte, 4), // 4 bytes (uint32)
 		currBlockFirstKey: make([]byte, 0, maxKeySize),
 		currBlockLastKey:  make([]byte, 0, maxKeySize),
 	}
@@ -145,7 +147,7 @@ func (s *SstBuilder) handleBlockSizeExceed() error {
 	return nil
 }
 
-// Write block buffer to file -> record blockOffset
+// Wtire block size -> Write block buffer to file -> record blockOffset
 // -> append index entry -> clear block buffer
 // -> reset block first key/last key
 // returns the bytes written to file
@@ -161,8 +163,15 @@ func (s *SstBuilder) flushBlock() (n int, err error) {
 		blockOffset:    s.currOffset,
 	}
 
+	// Add block size in block header
+	binary.LittleEndian.PutUint32(s.block.blockSizeBuf[:4], uint32(s.block.writeOffset))
+	bn, err := s.bw.Write(s.block.blockSizeBuf)
+	if err != nil {
+		return 0, nil
+	}
+
 	// write block buffer to writer
-	n, err = s.bw.Write(s.block.buff[:s.block.writeOffset])
+	nn, err := s.bw.Write(s.block.buff[:s.block.writeOffset])
 	if err != nil {
 		return 0, nil
 	}
@@ -173,7 +182,7 @@ func (s *SstBuilder) flushBlock() (n int, err error) {
 	// Reset the block
 	s.block.resetBlock()
 
-	return n, nil
+	return bn + nn, nil
 }
 
 // Called once after all entries added
