@@ -133,10 +133,9 @@ const (
 type WAL struct {
 	fd                *os.File
 	nextSeq           uint64
-	mu                sync.Mutex       // Protects concurrent appends(for now we have single writer)
-	segments          []WALSegmentMeta // Meta-data about all wal segments
-	active            WALSegmentMeta   // Meta data about current active wal segments
-	ActiveSegmentSize uint64           // Size of the current WAL
+	mu                sync.Mutex     // Protects concurrent appends(for now we have single writer)
+	active            WALSegmentMeta // Meta data about current active wal segments
+	ActiveSegmentSize uint64         // Size of the current WAL
 }
 
 // Put creates a WALRecord with the data passed and calls the internal write

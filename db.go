@@ -14,11 +14,18 @@ type Options struct {
 
 // TODO
 type DB struct {
-	wal        *wal.WAL
+	// WAL
+	wal         *wal.WAL
+	walSegments []wal.WALSegmentMeta // Meta-data about all wal segments
+
+	// Memtable
 	activeMem  *memtable.Memtable
 	frozenMems []*memtable.Memtable
-	levels     [][]*sstable.SstReader
-	nextSeq    uint64
+
+	// SST
+	levels [][]*sstable.SstReader
+
+	nextSeq uint64
 
 	options *Options
 	mu      sync.RWMutex
