@@ -53,7 +53,15 @@ func (db *DB) replayWAL() error {
 			if seq > maxSeq {
 				maxSeq = seq
 			}
+
+			if segment.StartSeq == 0 {
+				segment.StartSeq = seq
+			}
+
+			segment.EndSeq = seq
 		}
+
+		db.walSegments = append(db.walSegments, segment)
 
 		// Close the fd
 		fd.Close()
@@ -100,6 +108,10 @@ func scanWalDirectory(dir string) ([]wal.WALSegmentMeta, error) {
 		segments = append(segments, wal.WALSegmentMeta{
 			Id:   id,
 			Path: filepath.Join(dir, name),
+
+			StartSeq: 0,
+			EndSeq:   0,
+			State:    wal.WALSealed,
 		})
 	}
 

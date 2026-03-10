@@ -1,6 +1,7 @@
 package storageengine
 
 import (
+	"log"
 	"sync"
 
 	"github.com/suman7383/storage-engine/memtable"
@@ -38,14 +39,21 @@ type DB struct {
 // Recover wal
 // replay WAL into a new memtable
 // restore nextSeq
-func (d *DB) Open() {
+func (db *DB) Open() {
 	// TODO: Load Manifests
 
 	// TODO: Discover SST files
 
 	// TODO: Initialize New memtable
+	db.activeMem = memtable.NewMemtable(memtable.NewSkipList())
 
-	// TODO: Recover WAL
+	// Recover WAL
+	err := db.replayWAL()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// TODO: Open a new wal
 
 }
 
@@ -54,7 +62,7 @@ func (d *DB) Open() {
 // append to wal
 // insert into active memtable
 // if memtable full -> freeze + schedule flush
-func (d *DB) Put() {
+func (db *DB) Put() {
 
 }
 
@@ -66,6 +74,6 @@ func (d *DB) Put() {
 // 4> L1+
 //
 // Return first visible version <= snapshot seq
-func (d *DB) Get() {
+func (db *DB) Get() {
 
 }
