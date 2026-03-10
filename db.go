@@ -15,6 +15,7 @@ type Options struct {
 // TODO
 type DB struct {
 	// WAL
+	walDir      string // path to WAL directory
 	wal         *wal.WAL
 	walSegments []wal.WALSegmentMeta // Meta-data about all wal segments
 

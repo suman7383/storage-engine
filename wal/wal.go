@@ -118,6 +118,9 @@ var ErrCorruptRecord = errors.New("corrupt record detected")
 var ErrRecordMalformed = errors.New("malformed record detected")
 
 type WALSegmentMeta struct {
+	Id   uint64
+	Path string
+
 	StartSeq uint64
 	EndSeq   uint64
 	State    WALState

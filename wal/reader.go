@@ -36,6 +36,12 @@ func (wr *WALReader) Next() (rec *WALRecord, eof bool, err error) {
 	return rec, false, nil
 }
 
+// TODO
+func (wr *WALReader) HasNext() (hasNext bool) {
+
+	return false
+}
+
 // Decodes the encoded record to WALRecord
 func (wr *WALReader) decodeRecord() (rec *WALRecord, bytesRead int, err error) {
 	// read 4 bytes(record length field)
