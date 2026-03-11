@@ -1,7 +1,10 @@
 package storageengine
 
 import (
+	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/suman7383/storage-engine/memtable"
@@ -53,8 +56,20 @@ func (db *DB) Open() {
 		log.Fatal(err)
 	}
 
-	// TODO: Open a new wal
+	// Open a new wal
+	var activeWalID uint64 = 0
 
+	if len(db.walSegments) > 0 {
+		activeWalID = db.walSegments[len(db.walSegments)-1].Id
+	}
+
+	activeWalPath := filepath.Join(db.walDir, fmt.Sprintf("wal-%06d.log", activeWalID))
+	wfd, err := os.Create(activeWalPath)
+	if err != nil {
+		log.Fatalf("could not create new wal file: wal-%06d.log, err: %v", activeWalID, err)
+	}
+
+	db.wal = wal.NewWAL(wfd, activeWalID, activeWalPath)
 }
 
 // TODO:
