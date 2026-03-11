@@ -141,6 +141,20 @@ type WAL struct {
 	ActiveSegmentSize uint64         // Size of the current WAL
 }
 
+func NewWAL(fd *os.File, id uint64, path string) *WAL {
+	return &WAL{
+		fd: fd,
+		active: WALSegmentMeta{
+			Id:       id,
+			Path:     path,
+			State:    WALActive,
+			StartSeq: 1, // StartSeq is set to 1(i.e greater than endSeq) to check for first seq in the wal
+			EndSeq:   0,
+		},
+		ActiveSegmentSize: 0,
+	}
+}
+
 // Put creates a WALRecord with the data passed and calls the internal write
 // function. If successfull, it returns the seq number, else it returns 0, error
 // describing the error that occured
@@ -190,21 +204,24 @@ func (w *WAL) write(op OpType, key, value []byte) (uint64, error) {
 	}
 
 	// Update the activeSegmentSize and endSeq
-	w.updateSizeAndEndSeq(n, seq)
+	w.walSegmentMeta(n, seq)
 
 	return seq, nil
 }
 
 // Updates the activeSegmentSize and the EndSeq of the active WAL segment
-func (w *WAL) updateSizeAndEndSeq(delta uint64, endSeq uint64) {
-	w.addActiveSegmentSize(delta)
-	w.updateEndSeq(endSeq)
-}
-
-func (w *WAL) addActiveSegmentSize(delta uint64) {
+func (w *WAL) walSegmentMeta(delta uint64, seq uint64) {
 	w.ActiveSegmentSize += delta
+
+	// First record in this WAL
+	if w.active.StartSeq > w.active.EndSeq {
+		w.active.StartSeq = seq
+	}
+
+	// Update endSeq
+	w.active.EndSeq = seq
 }
 
-func (w *WAL) updateEndSeq(end uint64) {
-	w.active.EndSeq = end
+func (w *WAL) WalSegmentMeta() WALSegmentMeta {
+	return w.active
 }
