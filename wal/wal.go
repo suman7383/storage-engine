@@ -135,7 +135,6 @@ const (
 
 type WAL struct {
 	fd                *os.File
-	nextSeq           uint64
 	mu                sync.Mutex     // Protects concurrent appends(for now we have single writer)
 	active            WALSegmentMeta // Meta data about current active wal segments
 	ActiveSegmentSize uint64         // Size of the current WAL
@@ -158,35 +157,31 @@ func NewWAL(fd *os.File, id uint64, path string) *WAL {
 // Put creates a WALRecord with the data passed and calls the internal write
 // function. If successfull, it returns the seq number, else it returns 0, error
 // describing the error that occured
-func (w *WAL) Put(key, value []byte) (seq uint64, err error) {
+func (w *WAL) Put(key, value []byte, nextSeq uint64) (seq uint64, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if seq, err = w.write(OpPut, key, value); err != nil {
+	if seq, err = w.write(OpPut, key, value, nextSeq); err != nil {
 		return 0, err
 	} else {
-		w.nextSeq++
-
 		return seq, nil
 	}
 }
 
-func (w *WAL) Delete(key []byte) (seq uint64, err error) {
+func (w *WAL) Delete(key []byte, nextSeq uint64) (seq uint64, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if seq, err = w.write(OpDelete, key, nil); err != nil {
+	if seq, err = w.write(OpDelete, key, nil, nextSeq); err != nil {
 		return 0, err
 	} else {
-		w.nextSeq++
-
 		return seq, nil
 	}
 }
 
 // write is responsible for writing to the WAL.
-func (w *WAL) write(op OpType, key, value []byte) (uint64, error) {
-	seq := w.nextSeq
+func (w *WAL) write(op OpType, key, value []byte, nextSeq uint64) (uint64, error) {
+	seq := nextSeq
 
 	n, rec, err := encodeRecord(seq, op, key, value)
 	if err != nil {
