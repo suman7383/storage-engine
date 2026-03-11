@@ -14,10 +14,13 @@ import (
 
 // TODO: WAL Replay logic goes here
 func (db *DB) replayWAL() error {
+	log.Print("[WAL] replay in-process")
 	walSegments, err := scanWalDirectory(db.walDir)
 	if err != nil {
 		log.Fatal("error scanning WAL directory, err: ", err)
 	}
+
+	log.Printf("[WAL] scanning done. segments: %v", walSegments)
 
 	var maxSeq uint64 = 0
 
@@ -33,6 +36,7 @@ func (db *DB) replayWAL() error {
 
 		// Read the WAL entries
 		for reader.HasNext() {
+			log.Print("Has next record: TRUE")
 			record, eof, err := reader.Next()
 			if eof {
 				break
@@ -45,7 +49,13 @@ func (db *DB) replayWAL() error {
 				break
 			}
 
-			seq, err := db.activeMem.Apply(record.Key, record.Value, record.Seq)
+			log.Printf("[WAL] record. [SEQ]: %v, [KEY]: %v, [VALUE]: %v, [OP]: %v",
+				record.Seq,
+				string(record.Key),
+				string(record.Value),
+				record.Op)
+
+			seq, err := db.activeMem.Apply(record.Key, record.Value, record.Seq, record.Op)
 			if err != nil {
 				log.Fatal("could not load record to memtable, err: ", err)
 			}
@@ -77,10 +87,11 @@ func (db *DB) replayWAL() error {
 }
 
 func buildInternalKey(rec *wal.WALRecord) internalkey.InternalKey {
-	return internalkey.NewInternalKey(rec.Key, rec.Seq, internalkey.KeyType(rec.Op))
+	return internalkey.NewInternalKey(rec.Key, rec.Seq, rec.Op)
 }
 
 func scanWalDirectory(dir string) ([]wal.WALSegmentMeta, error) {
+	log.Print("[WAL] scanning wal files...")
 	var segments []wal.WALSegmentMeta
 
 	entries, err := os.ReadDir(dir)

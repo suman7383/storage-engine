@@ -5,13 +5,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"math"
+
+	"github.com/suman7383/storage-engine/op"
 )
 
 // | 	userKey 			|
 // | 	trailer (seq+kind)  | last 8 bytes
 type InternalKey []byte
 
-func NewInternalKey(userKey []byte, seq uint64, kind KeyType) InternalKey {
+func NewInternalKey(userKey []byte, seq uint64, kind op.OpType) InternalKey {
 	trailer := (seq << 8) | uint64(kind)
 
 	buf := make([]byte, len(userKey)+8)
@@ -50,14 +52,14 @@ func (i InternalKey) EqualUserKeys(to InternalKey) bool {
 }
 
 func (i InternalKey) IsDelete() bool {
-	return extractKind(i) == KeyDelete
+	return extractKind(i) == op.OpDelete
 }
 
 func (i InternalKey) IsPut() bool {
-	return extractKind(i) == KeyPut
+	return extractKind(i) == op.OpPut
 }
 
-func extractKind(i InternalKey) KeyType {
+func extractKind(i InternalKey) op.OpType {
 	trailerStart := len(i) - 8
 	trailer, err := decodeUint64(i[trailerStart:])
 	if err != nil {
@@ -65,7 +67,7 @@ func extractKind(i InternalKey) KeyType {
 	}
 
 	kind := trailer & 0xff
-	return KeyType(kind)
+	return op.OpType(kind)
 }
 
 var ErrInvalidByteSize = errors.New("invalid byte slice")
@@ -134,17 +136,10 @@ func MakeInternalLookupKey(userKey []byte, snapshotSeq uint64) InternalKey {
 type Key struct {
 	userKey []byte // provided by user
 	seq     uint64 // sequence no
-	kind    KeyType
+	kind    op.OpType
 }
 
-type KeyType uint8
-
-const (
-	KeyPut    KeyType = 0
-	KeyDelete KeyType = 1
-)
-
-func NewKey(key []byte, seq uint64, kind KeyType) Key {
+func NewKey(key []byte, seq uint64, kind op.OpType) Key {
 	return Key{
 		userKey: key,
 		seq:     seq,
@@ -186,11 +181,11 @@ func (k Key) Equal(to Key) bool {
 }
 
 func (k Key) IsDelete() bool {
-	return k.kind == KeyDelete
+	return k.kind == op.OpDelete
 }
 
 func (k Key) IsPut() bool {
-	return k.kind == KeyPut
+	return k.kind == op.OpPut
 }
 
 func (k Key) Seq() uint64 {
@@ -202,5 +197,5 @@ func (k Key) UserKey() []byte {
 }
 
 func Lookupkey(userKey []byte) Key {
-	return NewKey(userKey, math.MaxUint64, KeyPut)
+	return NewKey(userKey, math.MaxUint64, op.OpPut)
 }

@@ -5,7 +5,10 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"io"
+	"log"
 	"os"
+
+	"github.com/suman7383/storage-engine/op"
 )
 
 type WALReader struct {
@@ -24,6 +27,7 @@ func NewReader(fd *os.File) *WALReader {
 func (wr *WALReader) Next() (rec *WALRecord, eof bool, err error) {
 	rec, n, err := wr.decodeRecord()
 	if err != nil {
+		log.Printf("error getting next record: %v", err)
 		if err == io.EOF {
 			return nil, true, err
 		} else {
@@ -38,8 +42,12 @@ func (wr *WALReader) Next() (rec *WALRecord, eof bool, err error) {
 
 // TODO
 func (wr *WALReader) HasNext() (hasNext bool) {
+	b, err := wr.br.Peek(4)
+	if err != nil || len(b) < 4 {
+		return false
+	}
 
-	return false
+	return true
 }
 
 // Decodes the encoded record to WALRecord
@@ -97,7 +105,7 @@ func (wr *WALReader) decodeRecord() (rec *WALRecord, bytesRead int, err error) {
 	offset += 8
 
 	// op_type
-	op := OpType(recBuf[offset])
+	operation := op.OpType(recBuf[offset])
 	offset += 1
 
 	// key_len
@@ -108,7 +116,7 @@ func (wr *WALReader) decodeRecord() (rec *WALRecord, bytesRead int, err error) {
 	valueLen := binary.LittleEndian.Uint32(recBuf[offset : offset+4])
 	offset += 4
 
-	if op == OpDelete && valueLen != 0 {
+	if operation == op.OpDelete && valueLen != 0 {
 		return nil, 0, ErrRecordMalformed
 	}
 
@@ -127,7 +135,7 @@ func (wr *WALReader) decodeRecord() (rec *WALRecord, bytesRead int, err error) {
 
 	rec = &WALRecord{
 		Seq:   seq,
-		Op:    op,
+		Op:    operation,
 		Key:   key,
 		Value: val,
 	}

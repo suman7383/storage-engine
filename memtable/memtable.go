@@ -2,9 +2,11 @@ package memtable
 
 import (
 	"errors"
+	"fmt"
 	"unsafe"
 
 	"github.com/suman7383/storage-engine/internalkey"
+	"github.com/suman7383/storage-engine/op"
 	"github.com/suman7383/storage-engine/snapshot"
 )
 
@@ -25,22 +27,53 @@ func NewMemtable(skl *Skiplist) *Memtable {
 var ErrApplyingToMemtable = errors.New("inserting into skiplist returned false")
 var ErrMemtableFrozen = errors.New("memtable is frozen and in read-only state. Cannot append to frozen memtable")
 
-// Apply takes a record and appends it to the memtable.
+// Apply either performs put or delete operation with the given options depending
+// upon the operation passed(KeyType)
+func (m *Memtable) Apply(userKey, value []byte, seq uint64, operation op.OpType) (uint64, error) {
+
+	switch operation {
+	case op.OpPut:
+		return m.Put(userKey, value, seq)
+	case op.OpDelete:
+		return m.Delete(userKey, seq)
+	default:
+		return 0, fmt.Errorf("Invalid operation on memtable: %v", operation)
+	}
+}
+
+// Put takes a record and appends it to the memtable.
 //
 // It returns the seq number of the appended record
 // and error if any.
 // Apply is not concurrent safe. The caller must ensure this before using this
-func (m *Memtable) Apply(userKey, value []byte, seq uint64) (uint64, error) {
+func (m *Memtable) Put(userKey, value []byte, seq uint64) (uint64, error) {
 	if m.isFrozen {
 		return 0, ErrMemtableFrozen
 	}
-	ik := internalkey.NewInternalKey(userKey, seq, internalkey.KeyPut)
+	ik := internalkey.NewInternalKey(userKey, seq, op.OpPut)
 
+	err := m.apply(ik, userKey, value)
+
+	return seq, err
+}
+
+func (m *Memtable) Delete(userKey []byte, seq uint64) (uint64, error) {
+	if m.isFrozen {
+		return 0, ErrMemtableFrozen
+	}
+	ik := internalkey.NewInternalKey(userKey, seq, op.OpDelete)
+
+	err := m.apply(ik, userKey, nil)
+
+	return seq, err
+}
+
+func (m *Memtable) apply(ik internalkey.InternalKey, userKey []byte, value []byte) error {
 	h := m.skl.Insert(ik, value)
 
 	m.approxSize += computeSize(h, userKey, value)
 
-	return seq, nil
+	return nil
 }
 
 // searches the skiplist and returns the node

@@ -6,6 +6,8 @@ import (
 	"hash/crc32"
 	"os"
 	"sync"
+
+	"github.com/suman7383/storage-engine/op"
 )
 
 // -------------------------------------------------------------------------------
@@ -35,17 +37,10 @@ const MaxWALSegmentSize = 64 * 1024 * 1024 // 64 MB
 
 type WALRecord struct {
 	Seq   uint64
-	Op    OpType
+	Op    op.OpType
 	Key   []byte
 	Value []byte // Nil for DELETE
 }
-
-type OpType uint8
-
-const (
-	OpPut    OpType = 1
-	OpDelete OpType = 2
-)
 
 var ErrRecordTooLarge = errors.New("record too large")
 
@@ -59,7 +54,7 @@ var ErrRecordTooLarge = errors.New("record too large")
 // | key bytes   |
 // | value bytes |
 // | checksum    | uint32 (CRC32 of everything above except record_len
-func encodeRecord(seq uint64, op OpType, key, value []byte) (rec_size uint64, rec []byte, err error) {
+func encodeRecord(seq uint64, op op.OpType, key, value []byte) (rec_size uint64, rec []byte, err error) {
 	keyLen, valueLen := uint32(len(key)), uint32(len(value))
 
 	// Calculate record_len (everything except record_len itself)
@@ -161,7 +156,7 @@ func (w *WAL) Put(key, value []byte, nextSeq uint64) (seq uint64, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if seq, err = w.write(OpPut, key, value, nextSeq); err != nil {
+	if seq, err = w.write(op.OpPut, key, value, nextSeq); err != nil {
 		return 0, err
 	} else {
 		return seq, nil
@@ -172,7 +167,7 @@ func (w *WAL) Delete(key []byte, nextSeq uint64) (seq uint64, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if seq, err = w.write(OpDelete, key, nil, nextSeq); err != nil {
+	if seq, err = w.write(op.OpDelete, key, nil, nextSeq); err != nil {
 		return 0, err
 	} else {
 		return seq, nil
@@ -180,7 +175,7 @@ func (w *WAL) Delete(key []byte, nextSeq uint64) (seq uint64, err error) {
 }
 
 // write is responsible for writing to the WAL.
-func (w *WAL) write(op OpType, key, value []byte, nextSeq uint64) (uint64, error) {
+func (w *WAL) write(op op.OpType, key, value []byte, nextSeq uint64) (uint64, error) {
 	seq := nextSeq
 
 	n, rec, err := encodeRecord(seq, op, key, value)

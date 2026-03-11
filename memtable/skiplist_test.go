@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/suman7383/storage-engine/internalkey"
+	"github.com/suman7383/storage-engine/op"
 	"github.com/suman7383/storage-engine/snapshot"
 )
 
-func newInternalKey(userKey string, seq uint64, kind internalkey.KeyType) internalkey.InternalKey {
+func newInternalKey(userKey string, seq uint64, kind op.OpType) internalkey.InternalKey {
 	return internalkey.NewInternalKey([]byte(userKey), seq, kind)
 }
 
@@ -22,7 +23,7 @@ func newSnapshot(seq uint64) snapshot.Snapshot {
 func TestInsertAndSearch(t *testing.T) {
 	sl := NewSkipList()
 
-	key := newInternalKey("foo", 1, internalkey.KeyPut)
+	key := newInternalKey("foo", 1, op.OpPut)
 	value := []byte("bar")
 
 	sl.Insert(key, value)
@@ -40,8 +41,8 @@ func TestInsertAndSearch(t *testing.T) {
 func TestMultipleVersionsCoexist(t *testing.T) {
 	sl := NewSkipList()
 
-	key1 := newInternalKey("foo", 1, internalkey.KeyPut)
-	key2 := newInternalKey("foo", 2, internalkey.KeyPut)
+	key1 := newInternalKey("foo", 1, op.OpPut)
+	key2 := newInternalKey("foo", 2, op.OpPut)
 
 	sl.Insert(key1, []byte("v1"))
 	sl.Insert(key2, []byte("v2"))
@@ -57,8 +58,8 @@ func TestMultipleVersionsCoexist(t *testing.T) {
 func TestDeleteEntry(t *testing.T) {
 	sl := NewSkipList()
 
-	putKey := newInternalKey("foo", 1, internalkey.KeyPut)
-	delKey := newInternalKey("foo", 2, internalkey.KeyDelete)
+	putKey := newInternalKey("foo", 1, op.OpPut)
+	delKey := newInternalKey("foo", 2, op.OpDelete)
 
 	sl.Insert(putKey, []byte("v1"))
 	sl.Insert(delKey, nil)
@@ -73,10 +74,10 @@ func TestSortedOrder(t *testing.T) {
 	sl := NewSkipList()
 
 	keys := []internalkey.InternalKey{
-		newInternalKey("d", 1, internalkey.KeyPut),
-		newInternalKey("a", 1, internalkey.KeyPut),
-		newInternalKey("c", 1, internalkey.KeyPut),
-		newInternalKey("b", 1, internalkey.KeyPut),
+		newInternalKey("d", 1, op.OpPut),
+		newInternalKey("a", 1, op.OpPut),
+		newInternalKey("c", 1, op.OpPut),
+		newInternalKey("b", 1, op.OpPut),
 	}
 
 	for _, k := range keys {
@@ -98,9 +99,9 @@ func TestSortedOrder(t *testing.T) {
 func TestSequenceOrdering(t *testing.T) {
 	sl := NewSkipList()
 
-	k1 := newInternalKey("a", 1, internalkey.KeyPut)
-	k2 := newInternalKey("a", 2, internalkey.KeyPut)
-	k3 := newInternalKey("a", 3, internalkey.KeyPut)
+	k1 := newInternalKey("a", 1, op.OpPut)
+	k2 := newInternalKey("a", 2, op.OpPut)
+	k3 := newInternalKey("a", 3, op.OpPut)
 
 	sl.Insert(k1, []byte("v1"))
 	sl.Insert(k2, []byte("v2"))
@@ -120,7 +121,7 @@ func TestRandomStress(t *testing.T) {
 
 	for i := 0; i < N; i++ {
 		userKey := []byte(fmt.Sprintf("%08d", rand.Intn(N*10)))
-		key := internalkey.NewInternalKey(userKey, uint64(i), internalkey.KeyPut)
+		key := internalkey.NewInternalKey(userKey, uint64(i), op.OpPut)
 		sl.Insert(key, userKey)
 	}
 
@@ -166,11 +167,11 @@ func TestHeightDistribution(t *testing.T) {
 func TestSnapshotReturnsCorrectVersion(t *testing.T) {
 	sl := NewSkipList()
 
-	sl.Insert(newInternalKey("a", 1, internalkey.KeyPut), []byte("v1"))
-	sl.Insert(newInternalKey("a", 2, internalkey.KeyPut), []byte("v2"))
-	sl.Insert(newInternalKey("a", 3, internalkey.KeyPut), []byte("v3"))
+	sl.Insert(newInternalKey("a", 1, op.OpPut), []byte("v1"))
+	sl.Insert(newInternalKey("a", 2, op.OpPut), []byte("v2"))
+	sl.Insert(newInternalKey("a", 3, op.OpPut), []byte("v3"))
 
-	lookup := newInternalKey("a", math.MaxUint64>>8, internalkey.KeyPut)
+	lookup := newInternalKey("a", math.MaxUint64>>8, op.OpPut)
 	snap := newSnapshot(2)
 
 	node, found := sl.SearchWithSnapshot(lookup, snap)
@@ -186,10 +187,10 @@ func TestSnapshotReturnsCorrectVersion(t *testing.T) {
 func TestSnapshotSkipsNewerVersions(t *testing.T) {
 	sl := NewSkipList()
 
-	sl.Insert(newInternalKey("a", 1, internalkey.KeyPut), []byte("v1"))
-	sl.Insert(newInternalKey("a", 2, internalkey.KeyPut), []byte("v2"))
+	sl.Insert(newInternalKey("a", 1, op.OpPut), []byte("v1"))
+	sl.Insert(newInternalKey("a", 2, op.OpPut), []byte("v2"))
 
-	lookup := newInternalKey("a", math.MaxUint64>>8, internalkey.KeyPut)
+	lookup := newInternalKey("a", math.MaxUint64>>8, op.OpPut)
 	snap := newSnapshot(1)
 
 	node, found := sl.SearchWithSnapshot(lookup, snap)
@@ -205,10 +206,10 @@ func TestSnapshotSkipsNewerVersions(t *testing.T) {
 func TestSnapshotRespectsDelete(t *testing.T) {
 	sl := NewSkipList()
 
-	sl.Insert(newInternalKey("a", 1, internalkey.KeyPut), []byte("v1"))
-	sl.Insert(newInternalKey("a", 2, internalkey.KeyDelete), nil)
+	sl.Insert(newInternalKey("a", 1, op.OpPut), []byte("v1"))
+	sl.Insert(newInternalKey("a", 2, op.OpDelete), nil)
 
-	lookup := newInternalKey("a", math.MaxUint64>>8, internalkey.KeyPut)
+	lookup := newInternalKey("a", math.MaxUint64>>8, op.OpPut)
 	snap := newSnapshot(2)
 
 	_, found := sl.SearchWithSnapshot(lookup, snap)
@@ -220,10 +221,10 @@ func TestSnapshotRespectsDelete(t *testing.T) {
 func TestSnapshotBeforeDeleteSeesValue(t *testing.T) {
 	sl := NewSkipList()
 
-	sl.Insert(newInternalKey("a", 1, internalkey.KeyPut), []byte("v1"))
-	sl.Insert(newInternalKey("a", 2, internalkey.KeyDelete), nil)
+	sl.Insert(newInternalKey("a", 1, op.OpPut), []byte("v1"))
+	sl.Insert(newInternalKey("a", 2, op.OpDelete), nil)
 
-	lookup := newInternalKey("a", math.MaxUint64>>8, internalkey.KeyPut)
+	lookup := newInternalKey("a", math.MaxUint64>>8, op.OpPut)
 	snap := newSnapshot(1)
 
 	node, found := sl.SearchWithSnapshot(lookup, snap)
@@ -239,9 +240,9 @@ func TestSnapshotBeforeDeleteSeesValue(t *testing.T) {
 func TestSnapshotBeforeAnyWrite(t *testing.T) {
 	sl := NewSkipList()
 
-	sl.Insert(newInternalKey("a", 1, internalkey.KeyPut), []byte("v1"))
+	sl.Insert(newInternalKey("a", 1, op.OpPut), []byte("v1"))
 
-	lookup := newInternalKey("a", math.MaxUint64>>8, internalkey.KeyPut)
+	lookup := newInternalKey("a", math.MaxUint64>>8, op.OpPut)
 	snap := newSnapshot(0)
 
 	_, found := sl.SearchWithSnapshot(lookup, snap)
@@ -253,10 +254,10 @@ func TestSnapshotBeforeAnyWrite(t *testing.T) {
 func TestSnapshotStopsAtDifferentUserKey(t *testing.T) {
 	sl := NewSkipList()
 
-	sl.Insert(newInternalKey("a", 1, internalkey.KeyPut), []byte("v1"))
-	sl.Insert(newInternalKey("b", 2, internalkey.KeyPut), []byte("v2"))
+	sl.Insert(newInternalKey("a", 1, op.OpPut), []byte("v1"))
+	sl.Insert(newInternalKey("b", 2, op.OpPut), []byte("v2"))
 
-	lookup := newInternalKey("a", math.MaxUint64>>8, internalkey.KeyPut)
+	lookup := newInternalKey("a", math.MaxUint64>>8, op.OpPut)
 	snap := newSnapshot(10)
 
 	node, found := sl.SearchWithSnapshot(lookup, snap)
@@ -279,7 +280,7 @@ func BenchmarkInsert(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		userKey := []byte(fmt.Sprintf("%08d", i))
-		keys[i] = internalkey.NewInternalKey(userKey, uint64(i), internalkey.KeyPut)
+		keys[i] = internalkey.NewInternalKey(userKey, uint64(i), op.OpPut)
 		values[i] = userKey
 	}
 
@@ -300,7 +301,7 @@ func BenchmarkSearch(b *testing.B) {
 	// preload data
 	for i := 0; i < N; i++ {
 		userKey := []byte(fmt.Sprintf("%08d", i))
-		key := internalkey.NewInternalKey(userKey, uint64(i), internalkey.KeyPut)
+		key := internalkey.NewInternalKey(userKey, uint64(i), op.OpPut)
 		sl.Insert(key, userKey)
 	}
 
@@ -309,7 +310,7 @@ func BenchmarkSearch(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		idx := i % N
 		userKey := []byte(fmt.Sprintf("%08d", idx))
-		lookups[i] = internalkey.NewInternalKey(userKey, math.MaxUint64>>8, internalkey.KeyPut)
+		lookups[i] = internalkey.NewInternalKey(userKey, math.MaxUint64>>8, op.OpPut)
 	}
 
 	b.ResetTimer()
@@ -331,7 +332,7 @@ func BenchmarkSearchWithSnapshot(b *testing.B) {
 	for i := 0; i < N; i++ {
 		userKey := []byte(fmt.Sprintf("%08d", i))
 		for v := 1; v <= Versions; v++ {
-			key := internalkey.NewInternalKey(userKey, uint64(v), internalkey.KeyPut)
+			key := internalkey.NewInternalKey(userKey, uint64(v), op.OpPut)
 			sl.Insert(key, []byte("val"))
 		}
 	}
@@ -342,7 +343,7 @@ func BenchmarkSearchWithSnapshot(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		idx := i % N
 		userKey := []byte(fmt.Sprintf("%08d", idx))
-		lookups[i] = internalkey.NewInternalKey(userKey, math.MaxUint64>>8, internalkey.KeyPut)
+		lookups[i] = internalkey.NewInternalKey(userKey, math.MaxUint64>>8, op.OpPut)
 	}
 
 	b.ResetTimer()
@@ -361,7 +362,7 @@ func BenchmarkSearchMiss(b *testing.B) {
 
 	for i := 0; i < N; i++ {
 		userKey := []byte(fmt.Sprintf("%08d", i))
-		key := internalkey.NewInternalKey(userKey, uint64(i), internalkey.KeyPut)
+		key := internalkey.NewInternalKey(userKey, uint64(i), op.OpPut)
 		sl.Insert(key, userKey)
 	}
 
@@ -369,7 +370,7 @@ func BenchmarkSearchMiss(b *testing.B) {
 
 	for i := 0; i < b.N; i++ {
 		userKey := []byte(fmt.Sprintf("miss%08d", i))
-		key := internalkey.NewInternalKey(userKey, math.MaxUint64>>8, internalkey.KeyPut)
+		key := internalkey.NewInternalKey(userKey, math.MaxUint64>>8, op.OpPut)
 		sl.Search(key)
 	}
 }
@@ -385,7 +386,7 @@ func BenchmarkSearchHighVersionChurn(b *testing.B) {
 	for i := 0; i < Keys; i++ {
 		userKey := []byte(fmt.Sprintf("%08d", i))
 		for v := 1; v <= Versions; v++ {
-			key := internalkey.NewInternalKey(userKey, uint64(v), internalkey.KeyPut)
+			key := internalkey.NewInternalKey(userKey, uint64(v), op.OpPut)
 			sl.Insert(key, []byte("val"))
 		}
 	}
@@ -397,7 +398,7 @@ func BenchmarkSearchHighVersionChurn(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		idx := i % Keys
 		userKey := []byte(fmt.Sprintf("%08d", idx))
-		lookup := internalkey.NewInternalKey(userKey, math.MaxUint64>>8, internalkey.KeyPut)
+		lookup := internalkey.NewInternalKey(userKey, math.MaxUint64>>8, op.OpPut)
 		sl.SearchWithSnapshot(lookup, snap)
 	}
 }
