@@ -12,7 +12,7 @@ import (
 	"github.com/suman7383/storage-engine/wal"
 )
 
-// TODO: WAL Replay logic goes here
+// WAL Replay logic
 func (db *DB) replayWAL() error {
 	log.Print("[WAL] replay in-process")
 	walSegments, err := scanWalDirectory(db.walDir)
