@@ -25,7 +25,7 @@ type DB struct {
 	storageDir string
 
 	// Manifest
-	manifet *manifest
+	manifest *manifest
 
 	// WAL
 	wal         *wal.WAL
@@ -72,7 +72,7 @@ func (db *DB) Open() {
 	}
 
 	// Load Manifests
-	db.manifet = db.loadManifest()
+	db.manifest = db.loadManifest()
 
 	// TODO: Discover SST files
 	db.discoverSSTs()
@@ -128,7 +128,7 @@ func (db *DB) discoverSSTs() {
 		return
 	}
 
-	itr := db.manifet.NewIterator()
+	itr := db.manifest.NewIterator()
 
 	for itr.Next() {
 		rec := itr.Value()
