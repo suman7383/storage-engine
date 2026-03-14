@@ -115,6 +115,10 @@ func (m *Memtable) Size() uint64 {
 	return m.approxSize
 }
 
+func (m *Memtable) NewIterator() *SkiplistIterator {
+	return m.skl.NewIterator()
+}
+
 // computeSize calculates the size of the rec added to memtable
 func computeSize(nodeHeight int, key, value []byte) uint64 {
 	baseSize := unsafe.Sizeof(Node{})

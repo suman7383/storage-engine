@@ -259,7 +259,7 @@ func (db *DB) apply(seq uint64, userKey, value []byte, operation op.OpType) (ok 
 	// Insert to active memtable
 	_, err = db.activeMem.Apply(userKey, value, seq, operation)
 
-	// TODO: Checking for active memtable size
+	// TODO: Check for memtable flushing
 
 	return true, err
 }

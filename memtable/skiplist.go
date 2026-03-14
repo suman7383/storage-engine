@@ -194,6 +194,12 @@ func (s *Skiplist) randomHeight() int {
 	return height
 }
 
+func (s *Skiplist) NewIterator() *SkiplistIterator {
+	return &SkiplistIterator{
+		curr: s.head.next[0],
+	}
+}
+
 // func (s *Skiplist) coinFlip() bool {
 // 	return s.rand.Float64() < s.p
 // }
