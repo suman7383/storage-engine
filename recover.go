@@ -15,7 +15,15 @@ import (
 // WAL Replay logic
 func (db *DB) replayWAL() error {
 	log.Print("[WAL] replay in-process")
-	walSegments, err := scanWalDirectory(db.walDir)
+
+	wdir := filepath.Join(db.storageDir, "wal")
+	err := os.MkdirAll(wdir, 0755)
+	if err != nil {
+		log.Fatalln("Error creating WAL directory:", err)
+		return err
+	}
+
+	walSegments, err := scanWalDirectory(wdir)
 	if err != nil {
 		log.Fatal("error scanning WAL directory, err: ", err)
 	}

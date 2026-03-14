@@ -2,6 +2,7 @@ package storageengine
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,13 +16,18 @@ import (
 
 // TODO
 type Options struct {
-	WalDir string
+	StorageDir string
 }
 
 // TODO
 type DB struct {
+	// Storage
+	storageDir string
+
+	// Manifest
+	manifet *manifest
+
 	// WAL
-	walDir      string // path to WAL directory
 	wal         *wal.WAL
 	walSegments []wal.WALSegmentMeta // Meta-data about all wal segments
 
@@ -41,7 +47,7 @@ type DB struct {
 
 func NewDB(options Options) *DB {
 	return &DB{
-		walDir:      options.WalDir,
+		storageDir:  options.StorageDir,
 		walSegments: make([]wal.WALSegmentMeta, 0, 10),
 
 		frozenMems: make([]*memtable.Memtable, 0, 10),
@@ -59,15 +65,23 @@ func NewDB(options Options) *DB {
 // replay WAL into a new memtable
 // restore nextSeq
 func (db *DB) Open() {
-	// TODO: Load Manifests
+	err := os.MkdirAll(db.storageDir, 0755)
+	if err != nil {
+		log.Println("Error creating STORAGE directory:", err)
+		return
+	}
+
+	// Load Manifests
+	db.manifet = db.loadManifest()
 
 	// TODO: Discover SST files
+	db.discoverSSTs()
 
 	// TODO: Initialize New memtable
 	db.activeMem = memtable.NewMemtable(memtable.NewSkipList())
 
 	// Recover WAL
-	err := db.replayWAL()
+	err = db.replayWAL()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -81,7 +95,9 @@ func (db *DB) Open() {
 		activeWalID = db.walSegments[len(db.walSegments)-1].Id + 1
 	}
 
-	activeWalPath := filepath.Join(db.walDir, fmt.Sprintf("wal-%06d.log", activeWalID))
+	wdir := filepath.Join(db.storageDir, "wal")
+
+	activeWalPath := filepath.Join(wdir, fmt.Sprintf("wal-%06d.log", activeWalID))
 	wfd, err := os.OpenFile(
 		activeWalPath,
 		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
@@ -98,6 +114,73 @@ func (db *DB) Open() {
 
 func (db *DB) IsInitialized() bool {
 	return db.isInitialized
+}
+
+// TODO: Scan the manifest file and load the SSTs
+func (db *DB) discoverSSTs() {
+	log.Println("[SST] discovering SST files")
+
+	sstDir := filepath.Join(db.storageDir, "sst")
+
+	err := os.MkdirAll(sstDir, 0755)
+	if err != nil {
+		log.Fatalln("Error creating SST directory:", err)
+		return
+	}
+
+	itr := db.manifet.NewIterator()
+
+	for itr.Next() {
+		rec := itr.Value()
+
+		log.Printf("[SST] loading rec: %v, level: %v\n", rec.FileID, rec.Level)
+
+		filePath := filepath.Join(sstDir, rec.FileID+".sst")
+		fd, err := os.Open(filePath)
+		if err != nil {
+			log.Fatalf("could not load SST file: %v", err)
+		}
+
+		fSize, err := fd.Stat()
+		if err != nil {
+			log.Fatalf("could not Get SST file size: %v", err)
+		}
+
+		sstReader, err := sstable.NewSstReader(fd, fSize.Size())
+		if err != nil {
+			log.Fatalf("could not create SST file reader: %v", err)
+		}
+
+		// Append at the front of the level
+		db.levels[rec.Level] = append([]*sstable.SstReader{sstReader}, db.levels[rec.Level]...)
+	}
+
+	if itr.Err() != nil && itr.Err() != io.EOF {
+		log.Fatalf("error iterating through manifest records: %v", itr.Err())
+	}
+}
+
+func (db *DB) loadManifest() *manifest {
+	log.Println("[MAINFEST] loading")
+
+	mdir := filepath.Join(db.storageDir, "manifest")
+
+	err := os.MkdirAll(mdir, 0755)
+	if err != nil {
+		log.Fatalln("Error creating MANIFEST directory:", err)
+		return nil
+	}
+
+	mFilePath := filepath.Join(mdir, "manifest.log")
+
+	fd, err := os.OpenFile(mFilePath, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return &manifest{
+		fd: fd,
+	}
 }
 
 // TODO:
