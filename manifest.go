@@ -2,6 +2,9 @@ package storageengine
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
+	"io"
 	"os"
 	"strconv"
 )
@@ -21,6 +24,21 @@ const (
 	Delete ManifestOperation = "DEL"
 )
 
+var ErrInvalidManifestOperation = errors.New("Invalid Operation")
+var ErrCorruptManifestRecord = errors.New("Corrupt manifest record found")
+var ErrParsingManifestRecord = errors.New("Could not parse a manifest record")
+
+func ParseManifestOperation(op []byte) (ManifestOperation, error) {
+	mop := ManifestOperation(string(op))
+
+	switch mop {
+	case Add, Delete:
+		return mop, nil
+	default:
+		return "", ErrInvalidManifestOperation
+	}
+}
+
 type manifest struct {
 	fd *os.File
 }
@@ -28,7 +46,7 @@ type manifest struct {
 const delimiter = byte('\n')
 const separator = byte(' ')
 
-func (m manifest) Add(rec ManifestRecord) error {
+func (m *manifest) Add(rec ManifestRecord) error {
 	bw := bufio.NewWriter(m.fd)
 
 	// Write Operation
@@ -57,4 +75,105 @@ func (m manifest) Add(rec ManifestRecord) error {
 	}
 
 	return m.fd.Sync()
+}
+
+type ManifestIterator struct {
+	reader        bufio.Reader
+	currentRecord ManifestRecord
+	err           error
+}
+
+func (m *manifest) NewIterator() *ManifestIterator {
+	return &ManifestIterator{
+		reader: *bufio.NewReader(m.fd),
+		err:    nil,
+	}
+}
+
+// Next() scans the next record and stores it internally to returned on call to Value().
+// It stores the record that can be accessed by calling Value()
+func (mi *ManifestIterator) Next() bool {
+	// Decode the record
+	line, err := mi.reader.ReadBytes(separator)
+
+	// Only return false if err is EOF and the line read is empty
+	if err == io.EOF && len(line) == 0 {
+		mi.err = err
+		return false
+	}
+
+	fields := bytes.Fields(line)
+	i := 0
+
+	operation, err := ParseManifestOperation(fields[i])
+	if err != nil {
+		mi.err = err
+		return false
+	}
+
+	// ADD operation should have 5 fields
+	if operation == Add && len(fields) != 5 {
+		mi.err = ErrCorruptManifestRecord
+		return false
+	}
+
+	// DELETE operation should have 3 fields
+	if operation == Delete && len(fields) != 3 {
+		mi.err = ErrCorruptManifestRecord
+		return false
+	}
+
+	i++
+
+	levelStr := string(fields[i])
+	level, err := strconv.Atoi(levelStr)
+	if err != nil {
+		mi.err = ErrParsingManifestRecord
+		return false
+	}
+
+	i++
+	fileIDStr := string(fields[i])
+	fileID, err := strconv.Atoi(fileIDStr)
+	if err != nil {
+		mi.err = ErrParsingManifestRecord
+		return false
+	}
+
+	i++
+
+	if operation == Delete {
+		mi.currentRecord = ManifestRecord{
+			Operation: operation,
+			Level:     level,
+			FileID:    fileID,
+		}
+
+		return true
+	}
+
+	smallestKey := fields[i]
+	i++
+
+	largestKey := fields[i]
+
+	mi.currentRecord = ManifestRecord{
+		Operation:   operation,
+		Level:       level,
+		FileID:      fileID,
+		SmallestKey: smallestKey,
+		LargestKey:  largestKey,
+	}
+
+	return true
+}
+
+// Value() returns the record obtained from the Next() call
+func (mi *ManifestIterator) Value() ManifestRecord {
+	return mi.currentRecord
+}
+
+// Err() returns the error occured during call to Next() if any
+func (mi *ManifestIterator) Err() error {
+	return mi.err
 }
