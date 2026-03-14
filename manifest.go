@@ -12,7 +12,7 @@ import (
 type ManifestRecord struct {
 	Operation   ManifestOperation
 	Level       int
-	FileID      int
+	FileID      string
 	SmallestKey []byte
 	LargestKey  []byte
 }
@@ -56,7 +56,7 @@ func (m *manifest) Add(rec ManifestRecord) error {
 	bw.Write([]byte(strconv.Itoa(rec.Level) + " "))
 
 	// fileID
-	bw.Write([]byte(strconv.Itoa(rec.FileID) + " "))
+	bw.Write([]byte(rec.FileID + " "))
 
 	// Smallest key
 	bw.Write(rec.SmallestKey)
@@ -133,12 +133,7 @@ func (mi *ManifestIterator) Next() bool {
 	}
 
 	i++
-	fileIDStr := string(fields[i])
-	fileID, err := strconv.Atoi(fileIDStr)
-	if err != nil {
-		mi.err = ErrParsingManifestRecord
-		return false
-	}
+	fileID := string(fields[i])
 
 	i++
 
