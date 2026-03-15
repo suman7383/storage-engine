@@ -16,7 +16,9 @@ import (
 
 // TODO
 type Options struct {
-	StorageDir string
+	StorageDir            string
+	memtableMaxSize       uint64
+	maxImmutableMemtables int
 }
 
 // TODO
@@ -32,8 +34,10 @@ type DB struct {
 	walSegments []wal.WALSegmentMeta // Meta-data about all wal segments
 
 	// Memtable
-	activeMem  *memtable.Memtable
-	frozenMems []*memtable.Memtable
+	activeMem             *memtable.Memtable
+	frozenMems            []*memtable.Memtable
+	memtableMaxSize       uint64
+	maxImmutableMemtables int
 
 	// SST
 	levels [][]*sstable.SstReader
@@ -45,12 +49,16 @@ type DB struct {
 	isInitialized bool
 }
 
+const memtableMaxSize = 16 * 1024 * 1024 // 16MB
+
 func NewDB(options Options) *DB {
 	return &DB{
 		storageDir:  options.StorageDir,
 		walSegments: make([]wal.WALSegmentMeta, 0, 10),
 
-		frozenMems: make([]*memtable.Memtable, 0, 10),
+		frozenMems:            make([]*memtable.Memtable, 0, 10),
+		memtableMaxSize:       options.memtableMaxSize,
+		maxImmutableMemtables: options.maxImmutableMemtables, // At most 2 immutable memtables waiting for flush
 
 		levels: make([][]*sstable.SstReader, 0, 5),
 
