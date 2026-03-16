@@ -268,8 +268,28 @@ func (db *DB) apply(seq uint64, userKey, value []byte, operation op.OpType) (ok 
 	_, err = db.activeMem.Apply(userKey, value, seq, operation)
 
 	// TODO: Check for memtable flushing
+	if db.activeMem.Size() >= db.memtableMaxSize {
+		// Flush to SST
+		db.freezeActiveMemtable()
+
+		// TODO: Trigger flushing
+	}
 
 	return true, err
+}
+
+func (db *DB) freezeActiveMemtable() {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	// Freeze the current active memtable
+	db.activeMem.Freeze()
+
+	// Append the back
+	db.frozenMems = append(db.frozenMems, db.activeMem)
+
+	// Create a new activ memtable
+	db.activeMem = memtable.NewMemtable(memtable.NewSkipList())
 }
 
 // Searches the frozen memtables from newest to oldest
