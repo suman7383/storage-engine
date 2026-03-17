@@ -36,6 +36,7 @@ type DB struct {
 	// Memtable
 	activeMem             *memtable.Memtable
 	frozenMems            []*memtable.Memtable
+	flushChan             chan *memtable.Memtable
 	memtableMaxSize       uint64
 	maxImmutableMemtables int
 
@@ -57,6 +58,7 @@ func NewDB(options Options) *DB {
 		walSegments: make([]wal.WALSegmentMeta, 0, 10),
 
 		frozenMems:            make([]*memtable.Memtable, 0, 10),
+		flushChan:             make(chan *memtable.Memtable),
 		memtableMaxSize:       options.memtableMaxSize,
 		maxImmutableMemtables: options.maxImmutableMemtables, // At most 2 immutable memtables waiting for flush
 
