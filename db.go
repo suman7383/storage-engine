@@ -58,7 +58,7 @@ func NewDB(options Options) *DB {
 		walSegments: make([]wal.WALSegmentMeta, 0, 10),
 
 		frozenMems:            make([]*memtable.Memtable, 0, 10),
-		flushChan:             make(chan *memtable.Memtable),
+		flushChan:             make(chan *memtable.Memtable, options.maxImmutableMemtables),
 		memtableMaxSize:       options.memtableMaxSize,
 		maxImmutableMemtables: options.maxImmutableMemtables, // At most 2 immutable memtables waiting for flush
 
@@ -219,11 +219,19 @@ func (db *DB) Get(userKey []byte) (value []byte, ok bool) {
 		log.Fatal("db not initialized. Call db.Open()")
 	}
 
+	db.mu.RLock()
+
+	active := db.activeMem
+	immutables := db.frozenMems
+
+	db.mu.RUnlock()
+
 	var rec *memtable.Node
-	rec, ok = db.activeMem.Get(userKey, db.nextSeq-1)
+
+	rec, ok = active.Get(userKey, db.nextSeq-1)
 	if !ok {
 		// Search in frozen memtables
-		rec, ok = db.searchFrozenMemtables(userKey, db.nextSeq-1)
+		rec, ok = db.searchFrozenMemtables(immutables, userKey, db.nextSeq-1)
 
 		if !ok {
 			// TODO: Search SST
@@ -282,23 +290,29 @@ func (db *DB) apply(seq uint64, userKey, value []byte, operation op.OpType) (ok 
 
 func (db *DB) freezeActiveMemtable() {
 	db.mu.Lock()
-	defer db.mu.Unlock()
 
 	// Freeze the current active memtable
 	db.activeMem.Freeze()
 
-	// Append the back
-	db.frozenMems = append(db.frozenMems, db.activeMem)
+	frozen := db.activeMem
 
-	// Create a new activ memtable
+	// Append the back
+	db.frozenMems = append(db.frozenMems, frozen)
+
+	// Create a new active memtable
 	db.activeMem = memtable.NewMemtable(memtable.NewSkipList())
+
+	db.mu.Unlock()
+
+	// PUT to flush channel for triggering flushing
+	db.flushChan <- frozen
 }
 
 // Searches the frozen memtables from newest to oldest
-func (db *DB) searchFrozenMemtables(userKey []byte, snapshotSeq uint64) (rec *memtable.Node, ok bool) {
+func (db *DB) searchFrozenMemtables(immutables []*memtable.Memtable, userKey []byte, snapshotSeq uint64) (rec *memtable.Node, ok bool) {
 	log.Print("[GET] searching in frozen memtable")
-	for i := len(db.frozenMems) - 1; i >= 0; i-- {
-		memtable := db.frozenMems[i]
+	for i := len(immutables) - 1; i >= 0; i-- {
+		memtable := immutables[i]
 
 		rec, ok := memtable.Get(userKey, snapshotSeq)
 		if ok {
