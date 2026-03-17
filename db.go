@@ -1,12 +1,15 @@
 package storageengine
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/suman7383/storage-engine/memtable"
 	"github.com/suman7383/storage-engine/op"
@@ -41,16 +44,21 @@ type DB struct {
 	maxImmutableMemtables int
 
 	// SST
-	levels [][]*sstable.SstReader
+	levels    [][]*sstable.SstReader
+	nextSstID int
 
 	nextSeq uint64
 
 	mu sync.RWMutex
 
 	isInitialized bool
+
+	errState bool  // Indicates whether db is in error state(closed for writes)
+	err      error // If errState is true, this represents the error
 }
 
 const memtableMaxSize = 16 * 1024 * 1024 // 16MB
+const blockSize = 4 * 1024               // 4KB
 
 func NewDB(options Options) *DB {
 	return &DB{
@@ -65,6 +73,8 @@ func NewDB(options Options) *DB {
 		levels: make([][]*sstable.SstReader, 0, 5),
 
 		isInitialized: false,
+
+		errState: false,
 	}
 }
 
@@ -120,6 +130,8 @@ func (db *DB) Open() {
 	db.wal = wal.NewWAL(wfd, activeWalID, activeWalPath)
 
 	db.isInitialized = true
+
+	go db.flushMemtableWorker()
 }
 
 func (db *DB) IsInitialized() bool {
@@ -139,6 +151,8 @@ func (db *DB) discoverSSTs() {
 	}
 
 	itr := db.manifest.NewIterator()
+
+	var maxSstID int
 
 	for itr.Next() {
 		rec := itr.Value()
@@ -163,11 +177,20 @@ func (db *DB) discoverSSTs() {
 
 		// Append at the front of the level
 		db.levels[rec.Level] = append([]*sstable.SstReader{sstReader}, db.levels[rec.Level]...)
+
+		fileIDNum, err := strconv.Atoi(rec.FileID)
+		if err != nil {
+			log.Fatalln("Could not convert SST fileID string to int", err)
+		}
+
+		maxSstID = max(maxSstID, fileIDNum)
 	}
 
 	if itr.Err() != nil && itr.Err() != io.EOF {
 		log.Fatalf("error iterating through manifest records: %v", itr.Err())
 	}
+
+	db.nextSstID = maxSstID + 1
 }
 
 func (db *DB) loadManifest() *manifest {
@@ -193,6 +216,8 @@ func (db *DB) loadManifest() *manifest {
 	}
 }
 
+var ErrDatabaseReadonly = errors.New("database in readonly mode due to error")
+
 // TODO:
 // Allocate seq number
 // append to wal
@@ -201,6 +226,10 @@ func (db *DB) loadManifest() *manifest {
 func (db *DB) Put(userKey, value []byte) (ok bool, err error) {
 	if !db.isInitialized {
 		log.Fatal("db not initialized. Call db.Open()")
+	}
+
+	if db.errState {
+		return false, ErrDatabaseReadonly
 	}
 
 	return db.apply(db.nextSeq, userKey, value, op.OpPut)
@@ -248,6 +277,10 @@ func (db *DB) Get(userKey []byte) (value []byte, ok bool) {
 func (db *DB) Delete(userKey []byte) (ok bool, err error) {
 	if !db.isInitialized {
 		log.Fatal("db not initialized. Call db.Open()")
+	}
+
+	if db.errState {
+		return false, ErrDatabaseReadonly
 	}
 
 	return db.apply(db.nextSeq, userKey, nil, op.OpDelete)
@@ -321,4 +354,110 @@ func (db *DB) searchFrozenMemtables(immutables []*memtable.Memtable, userKey []b
 	}
 
 	return nil, false
+}
+
+func (db *DB) flushMemtableWorker() {
+	for mt := range db.flushChan {
+
+		for {
+			err := db.flushToSST(mt)
+			if err == nil {
+				break
+			}
+
+			db.mu.Lock()
+			db.errState = true
+			db.err = err
+			db.mu.Unlock()
+
+			log.Println("Flush failed, retrying:", err)
+			time.Sleep(2 * time.Second)
+		}
+
+		db.mu.Lock()
+		db.removeImmutableMemtable()
+		db.err = nil
+		db.errState = false
+		db.mu.Unlock()
+	}
+}
+
+// Removes the first(oldest) entry from the immutable memtable
+func (db *DB) removeImmutableMemtable() {
+	db.frozenMems = db.frozenMems[1:]
+}
+
+func (db *DB) flushToSST(memtable *memtable.Memtable) error {
+	sstDir := filepath.Join(db.storageDir, "sst")
+	tempSstFilePath := filepath.Join(sstDir, fmt.Sprintf("%06d.tmp", db.nextSstID))
+	finalSstFiletPath := filepath.Join(sstDir, fmt.Sprintf("%06d.sst", db.nextSstID))
+
+	fd, err := os.OpenFile(tempSstFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return err
+	}
+
+	sb := sstable.NewSstBuilder(fd, blockSize)
+
+	itr := memtable.NewIterator()
+
+	for itr.Valid() {
+		key := itr.Key()
+		val := itr.Value()
+
+		if err := sb.Add(key, val); err != nil {
+			return err
+		}
+
+		itr.Next()
+	}
+
+	smKey, lgKey, err := sb.Finish()
+
+	if err != nil {
+		return err
+	}
+
+	// Sync sst file
+	if err := fd.Sync(); err != nil {
+		fd.Close()
+		return err
+	}
+
+	fd.Close()
+
+	// Rename
+	if err := os.Rename(tempSstFilePath, finalSstFiletPath); err != nil {
+		return err
+	}
+
+	// Fsync directory
+	dir, err := os.Open(sstDir)
+	if err != nil {
+		return err
+	}
+
+	defer dir.Close()
+
+	if err := dir.Sync(); err != nil {
+		return err
+	}
+
+	// Update manifest
+	db.manifest.Add(ManifestRecord{
+		Operation:   Add,
+		Level:       0,
+		FileID:      fmt.Sprintf("%06d", db.nextSstID),
+		SmallestKey: smKey,
+		LargestKey:  lgKey,
+	})
+
+	// FSync manifest file
+	if err := db.manifest.FSync(); err != nil {
+		return err
+	}
+
+	db.nextSstID++
+
+	return nil
 }

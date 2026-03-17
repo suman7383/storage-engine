@@ -189,11 +189,11 @@ func (s *SstBuilder) flushBlock() (n int, err error) {
 //
 // Flush last block(if not empty) -> write index block
 // -> write footer -> rename filePath to finalPath -> mark finished
-func (s *SstBuilder) Finish() error {
+func (s *SstBuilder) Finish() (smallestKey, largestKey []byte, err error) {
 	// Flush last block if not empty
 	if s.block.writeOffset > 0 {
 		if err := s.handleBlockSizeExceed(); err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
 
@@ -202,7 +202,7 @@ func (s *SstBuilder) Finish() error {
 	// write index block
 	n, err := s.writeIndex()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	s.currOffset += int64(n)
@@ -210,18 +210,24 @@ func (s *SstBuilder) Finish() error {
 	// write footer block
 	err = s.writeFooter(uint64(indexOffset), uint64(n))
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// flush bw
 	err = s.bw.Flush()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	s.finished = true
 
-	return nil
+	smallestKey = make([]byte, len(s.smallestKey))
+	largestKey = make([]byte, len(largestKey))
+
+	copy(smallestKey, s.smallestKey)
+	copy(largestKey, s.largestKey)
+
+	return smallestKey, largestKey, nil
 }
 
 // Sets the index for the current file.

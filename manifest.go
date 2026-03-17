@@ -77,6 +77,10 @@ func (m *manifest) Add(rec ManifestRecord) error {
 	return m.fd.Sync()
 }
 
+func (m *manifest) FSync() error {
+	return m.fd.Sync()
+}
+
 type ManifestIterator struct {
 	reader        bufio.Reader
 	currentRecord ManifestRecord
