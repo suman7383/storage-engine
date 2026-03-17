@@ -20,8 +20,8 @@ import (
 // TODO
 type Options struct {
 	StorageDir            string
-	memtableMaxSize       uint64
-	maxImmutableMemtables int
+	MemtableMaxSize       uint64
+	MaxImmutableMemtables int
 }
 
 // TODO
@@ -66,9 +66,9 @@ func NewDB(options Options) *DB {
 		walSegments: make([]wal.WALSegmentMeta, 0, 10),
 
 		frozenMems:            make([]*memtable.Memtable, 0, 10),
-		flushChan:             make(chan *memtable.Memtable, options.maxImmutableMemtables),
-		memtableMaxSize:       options.memtableMaxSize,
-		maxImmutableMemtables: options.maxImmutableMemtables, // At most 2 immutable memtables waiting for flush
+		flushChan:             make(chan *memtable.Memtable, options.MaxImmutableMemtables),
+		memtableMaxSize:       options.MemtableMaxSize,
+		maxImmutableMemtables: options.MaxImmutableMemtables, // At most 2 immutable memtables waiting for flush
 
 		levels: make([][]*sstable.SstReader, 0, 5),
 
@@ -359,6 +359,8 @@ func (db *DB) searchFrozenMemtables(immutables []*memtable.Memtable, userKey []b
 func (db *DB) flushMemtableWorker() {
 	for mt := range db.flushChan {
 
+		log.Printf("[FLUSH] memtable IN-PROGRESS. Memtable size: %v\n", mt.Size())
+
 		for {
 			err := db.flushToSST(mt)
 			if err == nil {
@@ -379,6 +381,8 @@ func (db *DB) flushMemtableWorker() {
 		db.err = nil
 		db.errState = false
 		db.mu.Unlock()
+
+		log.Printf("[FLUSH] memtable COMPLETE. NEXT SST ID: %v\n", db.nextSstID)
 	}
 }
 
