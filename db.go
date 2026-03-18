@@ -159,6 +159,11 @@ func (db *DB) discoverSSTs() {
 
 		log.Printf("[SST] loading rec: %v, level: %v\n", rec.FileID, rec.Level)
 
+		if rec.Operation == Delete {
+			log.Printf("[SST] skipping DEL rec: %v, level: %v\n", rec.FileID, rec.Level)
+			continue
+		}
+
 		filePath := filepath.Join(sstDir, rec.FileID+".sst")
 		fd, err := os.Open(filePath)
 		if err != nil {
@@ -170,7 +175,7 @@ func (db *DB) discoverSSTs() {
 			log.Fatalf("could not Get SST file size: %v", err)
 		}
 
-		sstReader, err := sstable.NewSstReader(fd, fSize.Size())
+		sstReader, err := sstable.NewSstReader(fd, fSize.Size(), rec.SmallestKey, rec.LargestKey)
 		if err != nil {
 			log.Fatalf("could not create SST file reader: %v", err)
 		}

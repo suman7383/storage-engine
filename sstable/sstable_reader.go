@@ -25,11 +25,14 @@ type SstReader struct {
 }
 
 // Creates and initializes(parses footer, index) the sst reader.
-func NewSstReader(fd *os.File, fileSize int64) (*SstReader, error) {
+func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey []byte) (*SstReader, error) {
 
 	s := &SstReader{
 		fd:       fd,
 		fileSize: fileSize,
+
+		smallestKey: smallestKey,
+		largestKey:  largestKey,
 	}
 
 	indexEntryCount, indexOffset, indexSize, err := s.readFooter()

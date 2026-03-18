@@ -7,14 +7,16 @@ import (
 	"io"
 	"os"
 	"strconv"
+
+	"github.com/suman7383/storage-engine/internalkey"
 )
 
 type ManifestRecord struct {
 	Operation   ManifestOperation
 	Level       int
 	FileID      string
-	SmallestKey []byte
-	LargestKey  []byte
+	SmallestKey internalkey.InternalKey
+	LargestKey  internalkey.InternalKey
 }
 
 type ManifestOperation string
