@@ -465,50 +465,20 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 
 	itr := memtable.NewIterator()
 
-	i := 0
-
-	var smallestKeySeen internalkey.InternalKey
-	var largestKeySeen internalkey.InternalKey
-
 	for itr.Valid() {
 		key := itr.Key()
 		val := itr.Value()
 
-		// if i%500 == 0 {
-		// 	log.Printf("[FLUSH] i: %v, key: %v, userKey: %v", i, key, string(key.UserKey()))
+		// if i%50 == 0 {
+		// 	log.Printf("[FLUSH] i: %v, key: %v", i, string(key.UserKey()))
 		// }
-
-		if i%50 == 0 {
-			log.Printf("[FLUSH] i: %v, key: %v", i, string(key.UserKey()))
-		}
-
-		if smallestKeySeen == nil {
-			smallestKeySeen = key
-		}
-
-		if largestKeySeen == nil {
-			largestKeySeen = key
-		}
-
-		if smallestKeySeen.CompareUserKeys(key) == 1 {
-			smallestKeySeen = key
-		}
-
-		if largestKeySeen.CompareUserKeys(key) == -1 {
-			largestKeySeen = key
-		}
 
 		if err := sb.Add(key, val); err != nil {
 			return err
 		}
 
 		itr.Next()
-		i++
 	}
-
-	log.Printf("[FLUSH] keys info in skiplist, smallestKey: %v, largestKey: %v",
-		string(smallestKeySeen.UserKey()),
-		string(largestKeySeen.UserKey()))
 
 	smKey, lgKey, err := sb.Finish()
 
