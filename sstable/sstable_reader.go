@@ -49,6 +49,11 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 		return nil, err
 	}
 
+	for _, e := range s.indexEntries {
+		k := internalkey.InternalKey(s.indexBuf[e.keyStart : e.keyStart+e.keyLen])
+		log.Printf("[SST READER] index entry info. largestKey: %v, blockOffset: %v", string(k.UserKey()), e.blockOffset)
+	}
+
 	return s, nil
 }
 
@@ -139,32 +144,33 @@ func (s *SstReader) readBlock(blockOffset uint64) []byte {
 // block offset.
 // ok indicates whether the block is found or not
 func (s *SstReader) binarySearchIndex(key internalkey.InternalKey) (uint64, bool) {
-	l, h := 0, len(s.indexEntries)
+	l, h := 0, len(s.indexEntries)-1
+	result := -1
 
-	for l < h {
+	for l <= h {
 		m := l + (h-l)/2
 
 		ie := s.indexEntries[m]
-
-		// compare the key at mid entry
 		mk := internalkey.InternalKey(s.indexBuf[ie.keyStart : ie.keyStart+ie.keyLen])
-		log.Printf("[SST READER] middle key: %v", string(mk.UserKey()))
 
-		// Key found
-		if mk.EqualUserKeys(key) {
-			return ie.blockOffset, true
-		}
-
-		if key.Compare(mk) < 0 {
-			// Key is left of mid
-			h = m - 1
+		// KEY FIX: use mk.Compare(key), not key.Compare(mk)
+		if mk.Compare(key) >= 0 {
+			result = m
+			h = m - 1 // go LEFT to find first valid block
 		} else {
-			// Key is right of mid
 			l = m + 1
 		}
 	}
 
-	return 0, false
+	if result == -1 {
+		return 0, false
+	}
+
+	mk := internalkey.InternalKey(s.indexBuf[s.indexEntries[result].keyStart : s.indexEntries[result].keyStart+s.indexEntries[result].keyLen])
+
+	log.Printf("[INDEX RESULT] picked block with largestKey: %s", string(mk.UserKey()))
+
+	return s.indexEntries[result].blockOffset, true
 }
 
 const footerSize = 28 //bytes

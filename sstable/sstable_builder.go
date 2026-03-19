@@ -162,9 +162,12 @@ func (s *SstBuilder) flushBlock() (n int, err error) {
 		return 0, nil
 	}
 
+	blockLastKey := make([]byte, len(s.block.currBlockFirstKey))
+	copy(blockLastKey, s.block.currBlockFirstKey)
+
 	// index entry for the current data block
 	idx := indexEntries{
-		lastKeyOfBlock: s.block.currBlockLastKey,
+		lastKeyOfBlock: blockLastKey,
 		blockOffset:    s.currOffset,
 	}
 

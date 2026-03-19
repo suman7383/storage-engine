@@ -467,8 +467,12 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 		key := itr.Key()
 		val := itr.Value()
 
-		if i%500 == 0 {
-			log.Printf("[FLUSH] i: %v, key: %v, userKey: %v", i, key, string(key.UserKey()))
+		// if i%500 == 0 {
+		// 	log.Printf("[FLUSH] i: %v, key: %v, userKey: %v", i, key, string(key.UserKey()))
+		// }
+
+		if i%50 == 0 {
+			log.Printf("[FLUSH] i: %v, key: %v", i, string(key.UserKey()))
 		}
 
 		if smallestKeySeen == nil {
