@@ -104,18 +104,22 @@ func (db *DB) Open() {
 	db.manifest = db.loadManifest()
 
 	// TODO: Discover SST files
-	db.discoverSSTs()
+	maxManifestSeq := db.discoverSSTs()
 
 	// TODO: Initialize New memtable
 	db.activeMem = memtable.NewMemtable(memtable.NewSkipList())
 
 	// Recover WAL
-	err = db.replayWAL()
+	maxWALSeq, err := db.replayWAL()
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	log.Printf("[WAL] Replay complete. DB struct")
+
+	log.Printf("[DB] Deriving nextSeq")
+	db.nextSeq = max(maxManifestSeq, maxWALSeq) + 1
+	log.Printf("[DB] nextSeq set to: %v", db.nextSeq)
 
 	// Open a new wal
 	var activeWalID uint64 = 0
@@ -161,7 +165,7 @@ func (db *DB) IsInitialized() bool {
 }
 
 // TODO: Scan the manifest file and load the SSTs
-func (db *DB) discoverSSTs() {
+func (db *DB) discoverSSTs() (maxSeq uint64) {
 	log.Println("[SST] discovering SST files")
 
 	sstDir := filepath.Join(db.storageDir, "sst")
@@ -211,6 +215,7 @@ func (db *DB) discoverSSTs() {
 		}
 
 		maxSstID = max(maxSstID, fileIDNum)
+		maxSeq = max(maxSeq, rec.LastSeq)
 	}
 
 	if itr.Err() != nil && itr.Err() != io.EOF {
@@ -218,6 +223,8 @@ func (db *DB) discoverSSTs() {
 	}
 
 	db.nextSstID = maxSstID + 1
+
+	return maxSeq
 }
 
 func (db *DB) loadManifest() *manifest {
@@ -541,6 +548,7 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 		FileID:      fmt.Sprintf("%06d", db.nextSstID),
 		SmallestKey: smKey,
 		LargestKey:  lgKey,
+		LastSeq:     db.nextSeq - 1,
 	})
 
 	// FSync manifest file

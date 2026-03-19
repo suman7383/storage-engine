@@ -49,10 +49,11 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 		return nil, err
 	}
 
-	for _, e := range s.indexEntries {
-		k := internalkey.InternalKey(s.indexBuf[e.keyStart : e.keyStart+e.keyLen])
-		log.Printf("[SST READER] index entry info. largestKey: %v, blockOffset: %v", string(k.UserKey()), e.blockOffset)
-	}
+	// DEBUGGING INDEX ENTRIES
+	// for _, e := range s.indexEntries {
+	// 	k := internalkey.InternalKey(s.indexBuf[e.keyStart : e.keyStart+e.keyLen])
+	// 	log.Printf("[SST READER] index entry info. largestKey: %v, blockOffset: %v", string(k.UserKey()), e.blockOffset)
+	// }
 
 	return s, nil
 }
@@ -60,7 +61,7 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
 	// Compare if the key lies between smallestKey and largestKey
 	// If not return early, as it is not present in this SST
-	if key.IsLessThan(s.smallestKey) || key.IsGreaterThan(s.largestKey) {
+	if (key.IsLessThan(s.smallestKey) && key.CompareUserKeys(s.smallestKey) != 0) || key.IsGreaterThan(s.largestKey) {
 		return nil, false
 	}
 
@@ -99,7 +100,7 @@ func (s *SstReader) linearSearchBlock(block []byte, key internalkey.InternalKey)
 		ik := internalkey.InternalKey(block[offset : offset+int(keyLen)])
 		offset += int(keyLen)
 
-		log.Printf("[SST READER] linear search comparing internalKey: %v", string(ik.UserKey()))
+		// log.Printf("[SST READER] linear search comparing internalKey: %v", string(ik.UserKey()))
 
 		if ik.EqualUserKeys(key) && ik.IsPut() {
 			value = make([]byte, valueLen)

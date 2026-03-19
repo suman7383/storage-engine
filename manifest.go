@@ -18,6 +18,7 @@ type ManifestRecord struct {
 	FileID      string
 	SmallestKey internalkey.InternalKey
 	LargestKey  internalkey.InternalKey
+	LastSeq     uint64 // 8 bytes
 }
 
 type ManifestOperation string
@@ -61,13 +62,18 @@ func (m *manifest) Add(rec ManifestRecord) error {
 	// fileID
 	bw.Write([]byte(rec.FileID + " "))
 
-	// Smallest key
-	bw.Write(rec.SmallestKey)
-	bw.WriteByte(separator)
+	if rec.Operation == Add {
+		// LastSeq
+		bw.WriteString(strconv.FormatUint(rec.LastSeq, 10))
+		bw.WriteByte(separator)
 
-	// Largest Key
-	bw.Write(rec.LargestKey)
-	bw.WriteByte(separator)
+		// Smallest key
+		bw.Write(rec.SmallestKey)
+		bw.WriteByte(separator)
+
+		// Largest Key
+		bw.Write(rec.LargestKey)
+	}
 
 	// delimiter
 	bw.WriteByte(delimiter)
@@ -119,7 +125,7 @@ func (mi *ManifestIterator) Next() bool {
 	}
 
 	// ADD operation should have 5 fields
-	if operation == Add && len(fields) != 5 {
+	if operation == Add && len(fields) != 6 {
 		log.Printf("[MANIFEST] found Add record with fields: %v", len(fields))
 		mi.err = ErrCorruptManifestRecord
 		return false
@@ -155,6 +161,14 @@ func (mi *ManifestIterator) Next() bool {
 		return true
 	}
 
+	lastSeqStr := string(fields[i])
+	lastSeq, err := strconv.ParseUint(lastSeqStr, 10, 64)
+	if err != nil {
+		mi.err = ErrParsingManifestRecord
+		return false
+	}
+	i++
+
 	smallestKey := fields[i]
 	i++
 
@@ -166,6 +180,7 @@ func (mi *ManifestIterator) Next() bool {
 		FileID:      fileID,
 		SmallestKey: smallestKey,
 		LargestKey:  largestKey,
+		LastSeq:     lastSeq,
 	}
 
 	return true

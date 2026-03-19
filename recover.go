@@ -13,14 +13,14 @@ import (
 )
 
 // WAL Replay logic
-func (db *DB) replayWAL() error {
+func (db *DB) replayWAL() (maxSeq uint64, err error) {
 	log.Print("[WAL] replay in-process")
 
 	wdir := filepath.Join(db.storageDir, "wal")
-	err := os.MkdirAll(wdir, 0755)
+	err = os.MkdirAll(wdir, 0755)
 	if err != nil {
 		log.Fatalln("Error creating WAL directory:", err)
-		return err
+		return 0, err
 	}
 
 	walSegments, err := scanWalDirectory(wdir)
@@ -30,12 +30,10 @@ func (db *DB) replayWAL() error {
 
 	log.Printf("[WAL] scanning done. segments: %v", walSegments)
 
-	var maxSeq uint64 = 0
-
 	for _, segment := range walSegments {
 		fd, err := os.Open(segment.Path)
 		if err != nil {
-			return err
+			return 0, err
 		}
 
 		reader := wal.NewReader(fd)
@@ -89,9 +87,7 @@ func (db *DB) replayWAL() error {
 		}
 	}
 
-	db.nextSeq = maxSeq + 1
-
-	return nil
+	return maxSeq, nil
 }
 
 func buildInternalKey(rec *wal.WALRecord) internalkey.InternalKey {
