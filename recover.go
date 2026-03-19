@@ -44,7 +44,7 @@ func (db *DB) replayWAL() error {
 
 		// Read the WAL entries
 		for reader.HasNext() {
-			log.Print("Has next record: TRUE")
+			// log.Print("Has next record: TRUE")
 			record, eof, err := reader.Next()
 			if eof {
 				break
@@ -57,11 +57,11 @@ func (db *DB) replayWAL() error {
 				break
 			}
 
-			log.Printf("[WAL] record. [SEQ]: %v, [KEY]: %v, [VALUE]: %v, [OP]: %v",
-				record.Seq,
-				string(record.Key),
-				string(record.Value),
-				record.Op)
+			// log.Printf("[WAL] record. [SEQ]: %v, [KEY]: %v, [VALUE]: %v, [OP]: %v",
+			// 	record.Seq,
+			// 	string(record.Key),
+			// 	string(record.Value),
+			// 	record.Op)
 
 			seq, err := db.activeMem.Apply(record.Key, record.Value, record.Seq, record.Op)
 			if err != nil {

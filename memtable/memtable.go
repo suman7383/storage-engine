@@ -3,6 +3,7 @@ package memtable
 import (
 	"errors"
 	"fmt"
+	"log"
 	"unsafe"
 
 	"github.com/suman7383/storage-engine/internalkey"
@@ -82,6 +83,8 @@ func (m *Memtable) apply(ik internalkey.InternalKey, userKey []byte, value []byt
 // Get always returns the latest version of the key
 func (m *Memtable) Get(userKey []byte, snapshotSeq uint64) (rec *Node, ok bool) {
 	lk := internalkey.MakeInternalLookupKey(userKey, snapshotSeq)
+
+	log.Printf("[MEMTABLE] internalKey size: %v", len(lk))
 
 	return m.skl.Search(lk)
 }

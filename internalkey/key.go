@@ -86,6 +86,10 @@ func (i InternalKey) Compare(to InternalKey) int {
 	return CompareInternalKeys(i, to)
 }
 
+func (i InternalKey) CompareUserKeys(to InternalKey) int {
+	return CompareUserKeys(i, to)
+}
+
 func CompareUserKeys(a, b InternalKey) int {
 	aLen := len(a)
 	bLen := len(b)

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log"
 	"log/slog"
 	"os"
 
@@ -25,7 +26,10 @@ type SstReader struct {
 }
 
 // Creates and initializes(parses footer, index) the sst reader.
-func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey []byte) (*SstReader, error) {
+func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalkey.InternalKey) (*SstReader, error) {
+	log.Printf("[SST READER] smallestKey: %v, largestKey: %v",
+		string(smallestKey.UserKey()),
+		string(largestKey.UserKey()))
 
 	s := &SstReader{
 		fd:       fd,
@@ -55,9 +59,12 @@ func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
 		return nil, false
 	}
 
+	log.Printf("[SST READER] key lies in current SST")
+
 	// Binary search in indexEntries to find in which block key exists
 	blockOffset, found := s.binarySearchIndex(key)
 	if !found {
+		log.Println("[SST READER] not found in index")
 		return nil, false
 	}
 
@@ -86,6 +93,8 @@ func (s *SstReader) linearSearchBlock(block []byte, key internalkey.InternalKey)
 
 		ik := internalkey.InternalKey(block[offset : offset+int(keyLen)])
 		offset += int(keyLen)
+
+		log.Printf("[SST READER] linear search comparing internalKey: %v", string(ik.UserKey()))
 
 		if ik.EqualUserKeys(key) && ik.IsPut() {
 			value = make([]byte, valueLen)
@@ -139,6 +148,7 @@ func (s *SstReader) binarySearchIndex(key internalkey.InternalKey) (uint64, bool
 
 		// compare the key at mid entry
 		mk := internalkey.InternalKey(s.indexBuf[ie.keyStart : ie.keyStart+ie.keyLen])
+		log.Printf("[SST READER] middle key: %v", string(mk.UserKey()))
 
 		// Key found
 		if mk.EqualUserKeys(key) {
@@ -196,8 +206,12 @@ func (s *SstReader) parseFooter(buf []byte) (indexEntryCount uint32, indexOffset
 	magicNum := binary.LittleEndian.Uint64(buf[offset : offset+8])
 	offset += 8
 
+	log.Printf("[SST READER] indexEntry: %v, indexOffset: %v, indexSize: %v, magicNum: %v",
+		indexEntryCount, indexOffset, indexSize, magicNum)
+
 	// Validate magic number
 	if magicNum != SstMagic {
+		log.Printf("[SST] magicNum found: %v, sstMagic: %v", magicNum, SstMagic)
 		return 0, 0, 0, ErrFooterCorrupt
 	}
 

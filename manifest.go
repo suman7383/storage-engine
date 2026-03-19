@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"log"
 	"os"
 	"strconv"
 
@@ -100,7 +101,7 @@ func (m *manifest) NewIterator() *ManifestIterator {
 // It stores the record that can be accessed by calling Value()
 func (mi *ManifestIterator) Next() bool {
 	// Decode the record
-	line, err := mi.reader.ReadBytes(separator)
+	line, err := mi.reader.ReadBytes(delimiter)
 
 	// Only return false if err is EOF and the line read is empty
 	if err == io.EOF && len(line) == 0 {
@@ -119,6 +120,7 @@ func (mi *ManifestIterator) Next() bool {
 
 	// ADD operation should have 5 fields
 	if operation == Add && len(fields) != 5 {
+		log.Printf("[MANIFEST] found Add record with fields: %v", len(fields))
 		mi.err = ErrCorruptManifestRecord
 		return false
 	}

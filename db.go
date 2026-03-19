@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/suman7383/storage-engine/internalkey"
 	"github.com/suman7383/storage-engine/memtable"
 	"github.com/suman7383/storage-engine/op"
 	"github.com/suman7383/storage-engine/sstable"
@@ -61,6 +63,13 @@ const memtableMaxSize = 16 * 1024 * 1024 // 16MB
 const blockSize = 4 * 1024               // 4KB
 
 func NewDB(options Options) *DB {
+
+	levels := make([][]*sstable.SstReader, 0, 5)
+
+	for _ = range 5 {
+		levels = append(levels, []*sstable.SstReader{})
+	}
+
 	return &DB{
 		storageDir:  options.StorageDir,
 		walSegments: make([]wal.WALSegmentMeta, 0, 10),
@@ -70,7 +79,7 @@ func NewDB(options Options) *DB {
 		memtableMaxSize:       options.MemtableMaxSize,
 		maxImmutableMemtables: options.MaxImmutableMemtables, // At most 2 immutable memtables waiting for flush
 
-		levels: make([][]*sstable.SstReader, 0, 5),
+		levels: make([][]*sstable.SstReader, 5),
 
 		isInitialized: false,
 
@@ -106,7 +115,7 @@ func (db *DB) Open() {
 		log.Fatal(err)
 	}
 
-	log.Printf("[WAL] Replay complete. DB struct: %+v", db)
+	log.Printf("[WAL] Replay complete. DB struct")
 
 	// Open a new wal
 	var activeWalID uint64 = 0
@@ -132,6 +141,19 @@ func (db *DB) Open() {
 	db.isInitialized = true
 
 	go db.flushMemtableWorker()
+
+	// DEBUGGING
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+
+		defer t.Stop()
+
+		for _ = range t.C {
+			kb := math.Floor(float64(db.activeMem.Size() / 1024))
+			mb := math.Floor(float64(db.activeMem.Size() / 1024 / 1024))
+			log.Printf("[INFO] memtable size: %v KB, %v MB", kb, mb)
+		}
+	}()
 }
 
 func (db *DB) IsInitialized() bool {
@@ -180,8 +202,8 @@ func (db *DB) discoverSSTs() {
 			log.Fatalf("could not create SST file reader: %v", err)
 		}
 
-		// Append at the front of the level
-		db.levels[rec.Level] = append([]*sstable.SstReader{sstReader}, db.levels[rec.Level]...)
+		// Append at the back of the level
+		db.levels[rec.Level] = append(db.levels[rec.Level], sstReader)
 
 		fileIDNum, err := strconv.Atoi(rec.FileID)
 		if err != nil {
@@ -268,7 +290,11 @@ func (db *DB) Get(userKey []byte) (value []byte, ok bool) {
 		rec, ok = db.searchFrozenMemtables(immutables, userKey, db.nextSeq-1)
 
 		if !ok {
-			// TODO: Search SST
+			// Search SST
+			if val, ok := db.searchSST(userKey, db.nextSeq-1); ok {
+				return val, ok
+			}
+
 			return nil, false
 		}
 	}
@@ -361,6 +387,28 @@ func (db *DB) searchFrozenMemtables(immutables []*memtable.Memtable, userKey []b
 	return nil, false
 }
 
+func (db *DB) searchSST(userKey []byte, snapshotSeq uint64) (val []byte, ok bool) {
+	log.Print("[GET] searching in SST")
+
+	ikey := internalkey.MakeInternalLookupKey(userKey, snapshotSeq)
+
+	// Search each level from back
+	for _, level := range db.levels {
+		// Search backwards (because latest sst is at the end of the current level)
+		for i := len(level) - 1; i >= 0; i-- {
+			sr := level[i]
+
+			if val, ok = sr.Get(ikey); ok {
+				return val, ok
+			}
+		}
+	}
+
+	log.Print("[GET] Not found in SST")
+
+	return nil, false
+}
+
 func (db *DB) flushMemtableWorker() {
 	for mt := range db.flushChan {
 
@@ -410,16 +458,46 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 
 	itr := memtable.NewIterator()
 
+	i := 0
+
+	var smallestKeySeen internalkey.InternalKey
+	var largestKeySeen internalkey.InternalKey
+
 	for itr.Valid() {
 		key := itr.Key()
 		val := itr.Value()
+
+		if i%500 == 0 {
+			log.Printf("[FLUSH] i: %v, key: %v, userKey: %v", i, key, string(key.UserKey()))
+		}
+
+		if smallestKeySeen == nil {
+			smallestKeySeen = key
+		}
+
+		if largestKeySeen == nil {
+			largestKeySeen = key
+		}
+
+		if smallestKeySeen.CompareUserKeys(key) == 1 {
+			smallestKeySeen = key
+		}
+
+		if largestKeySeen.CompareUserKeys(key) == -1 {
+			largestKeySeen = key
+		}
 
 		if err := sb.Add(key, val); err != nil {
 			return err
 		}
 
 		itr.Next()
+		i++
 	}
+
+	log.Printf("[FLUSH] keys info in skiplist, smallestKey: %v, largestKey: %v",
+		string(smallestKeySeen.UserKey()),
+		string(largestKeySeen.UserKey()))
 
 	smKey, lgKey, err := sb.Finish()
 

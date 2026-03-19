@@ -3,6 +3,7 @@ package sstable
 import (
 	"bufio"
 	"encoding/binary"
+	"log"
 	"os"
 
 	"github.com/suman7383/storage-engine/internalkey"
@@ -97,15 +98,18 @@ func (s *SstBuilder) Add(internalKey internalkey.InternalKey, value []byte) erro
 
 	// If adding the current bytes results in overflow of the current block,
 	// then flush the current block and reset the block
-	if s.block.writeOffset+len(b) > s.block.sizeLimit {
+	if s.block.writeOffset+len(b) >= s.block.sizeLimit {
+		// log.Printf("[SST] block size exceeded. Writing block: currOffset: %v,buff-size: %v, blockLen: %v", s.block.writeOffset, len(s.block.buff), len(b))
 		if err := s.handleBlockSizeExceed(); err != nil {
 			return err
 		}
+
+		// log.Printf("[SST] After flushing block: currOffset: %v, buff-size: %v, blockLen: %v", s.block.writeOffset, len(s.block.buff), len(b))
 	}
 
 	// Copy into the window of the buffer
 	// from block.writeOffset to block.writeOffset + len(b)
-	copy(s.block.buff[s.block.writeOffset:s.block.writeOffset+len(b)], b)
+	s.block.buff = append(s.block.buff, b...)
 	s.block.writeOffset += len(b)
 
 	// Update the first key of current block if this is the first key in the block
@@ -152,6 +156,7 @@ func (s *SstBuilder) handleBlockSizeExceed() error {
 // -> reset block first key/last key
 // returns the bytes written to file
 func (s *SstBuilder) flushBlock() (n int, err error) {
+	// log.Printf("[BLOCK] flushing")
 	// If the block is empty, don't proceed further
 	if len(s.block.buff) == 0 {
 		return 0, nil
@@ -222,7 +227,7 @@ func (s *SstBuilder) Finish() (smallestKey, largestKey []byte, err error) {
 	s.finished = true
 
 	smallestKey = make([]byte, len(s.smallestKey))
-	largestKey = make([]byte, len(largestKey))
+	largestKey = make([]byte, len(s.largestKey))
 
 	copy(smallestKey, s.smallestKey)
 	copy(largestKey, s.largestKey)
@@ -281,7 +286,7 @@ func (s *SstBuilder) writeIndex() (n int, err error) {
 //
 // Total = 28 bytes
 func (s *SstBuilder) writeFooter(indexOffset, indexBlockSize uint64) error {
-	buf := make([]byte, 28) // index_block_offset + index_block_size + magic_number
+	buf := make([]byte, 28) // indexEntryCount + index_block_offset + index_block_size + magic_number
 	offset := 0
 
 	binary.LittleEndian.PutUint32(buf[offset:offset+4], uint32(len(s.indexEntries)))
@@ -299,10 +304,14 @@ func (s *SstBuilder) writeFooter(indexOffset, indexBlockSize uint64) error {
 	binary.LittleEndian.PutUint64(buf[offset:offset+8], SstMagic)
 	offset += 8
 
-	_, err := s.fd.Write(buf)
+	n, err := s.bw.Write(buf)
 	if err != nil {
 		return err
 	}
+
+	log.Printf("[SST] builder footer size: %v", n)
+	log.Printf("[SST READER] indexEntry: %v, indexOffset: %v, indexSize: %v, magicNum: %v",
+		len(s.indexEntries), indexOffset, indexBlockSize, SstMagic)
 
 	return nil
 }
