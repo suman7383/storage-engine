@@ -465,9 +465,13 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 
 	itr := memtable.NewIterator()
 
+	var maxSeq uint64
+
 	for itr.Valid() {
 		key := itr.Key()
 		val := itr.Value()
+
+		maxSeq = max(maxSeq, key.Seq())
 
 		// if i%50 == 0 {
 		// 	log.Printf("[FLUSH] i: %v, key: %v", i, string(key.UserKey()))
@@ -528,5 +532,16 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 
 	db.nextSstID++
 
+	// Update checkpoint
+	db.checkpoint(maxSeq)
+
 	return nil
+}
+
+func (db *DB) checkpoint(seq uint64) {
+	err := updateCheckpoint(db.storageDir, seq)
+	if err != nil {
+		log.Printf("[CHECKPOINT] error updting checkpoint , err: %v", err)
+	}
+
 }

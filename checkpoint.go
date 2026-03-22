@@ -2,7 +2,6 @@ package storageengine
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,7 +13,6 @@ func updateCheckpoint(storageDir string, seq uint64) error {
 
 	err := os.MkdirAll(cDir, 0755)
 	if err != nil {
-		log.Println("[CHECKPOINT] error creating checkpoint directory:", err)
 		return err
 	}
 
@@ -25,19 +23,16 @@ func updateCheckpoint(storageDir string, seq uint64) error {
 
 	fd, err := os.Create(tempPath)
 	if err != nil {
-		log.Printf("[CHECKPOINT] err creating temp checkpoint file, err: %v", err)
 		return err
 	}
 
 	_, err = fd.WriteString(seqStr)
 	if err != nil {
-		log.Printf("[CHECKPOINT] err writing to temp checkpoint file, err: %v", err)
 		return err
 	}
 
 	err = fd.Sync()
 	if err != nil {
-		log.Printf("[CHECKPOINT] error syncing file, err: %v", err)
 		fd.Close()
 		return err
 	}
@@ -63,7 +58,6 @@ func readCheckpoint(storageDir string) (seq uint64, err error) {
 
 	err = os.MkdirAll(cDir, 0755)
 	if err != nil {
-		log.Println("[CHECKPOINT] error creating checkpoint directory:", err)
 		return 0, err
 	}
 
