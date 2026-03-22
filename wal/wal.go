@@ -215,3 +215,11 @@ func (w *WAL) walSegmentMeta(delta uint64, seq uint64) {
 func (w *WAL) WalSegmentMeta() WALSegmentMeta {
 	return w.active
 }
+
+func (w *WAL) Sync() {
+	w.fd.Sync()
+}
+
+func (w *WAL) Close() {
+	w.fd.Close()
+}

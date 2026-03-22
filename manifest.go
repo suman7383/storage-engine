@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/suman7383/storage-engine/internalkey"
 )
@@ -44,6 +45,7 @@ func ParseManifestOperation(op []byte) (ManifestOperation, error) {
 }
 
 type manifest struct {
+	mu sync.Mutex
 	fd *os.File
 }
 
@@ -51,6 +53,9 @@ const delimiter = byte('\n')
 const separator = byte(' ')
 
 func (m *manifest) Add(rec ManifestRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	bw := bufio.NewWriter(m.fd)
 
 	// Write Operation

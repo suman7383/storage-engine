@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/suman7383/storage-engine/internalkey"
@@ -47,7 +48,7 @@ type DB struct {
 
 	// SST
 	levels    [][]*sstable.SstReader
-	nextSstID int
+	nextSstID int64
 
 	nextSeq uint64
 
@@ -128,19 +129,9 @@ func (db *DB) Open() {
 		activeWalID = db.walSegments[len(db.walSegments)-1].Id + 1
 	}
 
-	wdir := filepath.Join(db.storageDir, "wal")
+	wal := db.createActiveWAL(activeWalID)
 
-	activeWalPath := filepath.Join(wdir, fmt.Sprintf("wal-%06d.log", activeWalID))
-	wfd, err := os.OpenFile(
-		activeWalPath,
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
-		0644,
-	)
-	if err != nil {
-		log.Fatalf("could not create new wal file: wal-%06d.log, err: %v", activeWalID, err)
-	}
-
-	db.wal = wal.NewWAL(wfd, activeWalID, activeWalPath)
+	db.wal = wal
 
 	db.isInitialized = true
 
@@ -158,6 +149,25 @@ func (db *DB) Open() {
 			log.Printf("[INFO] memtable size: %v KB, %v MB", kb, mb)
 		}
 	}()
+}
+
+func (db *DB) createActiveWAL(activeWalID uint64) *wal.WAL {
+	wdir := filepath.Join(db.storageDir, "wal")
+
+	activeWalPath := filepath.Join(wdir, fmt.Sprintf("wal-%06d.log", activeWalID))
+	wfd, err := os.OpenFile(
+		activeWalPath,
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND,
+		0644,
+	)
+
+	if err != nil {
+		log.Fatalf("could not create new wal file: wal-%06d.log, err: %v", activeWalID, err)
+	}
+
+	wal := wal.NewWAL(wfd, activeWalID, activeWalPath)
+
+	return wal
 }
 
 func (db *DB) IsInitialized() bool {
@@ -222,7 +232,7 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 		log.Fatalf("error iterating through manifest records: %v", itr.Err())
 	}
 
-	db.nextSstID = maxSstID + 1
+	db.nextSstID = int64(maxSstID) + 1
 
 	return maxSeq
 }
@@ -285,13 +295,15 @@ func (db *DB) Get(userKey []byte) (value []byte, ok bool) {
 	db.mu.RLock()
 
 	active := db.activeMem
-	immutables := db.frozenMems
+	immutables := make([]*memtable.Memtable, len(db.frozenMems))
+	copy(immutables, db.frozenMems)
+	readSeq := db.nextSeq - 1
 
 	db.mu.RUnlock()
 
 	var rec *memtable.Node
 
-	rec, ok = active.Get(userKey, db.nextSeq-1)
+	rec, ok = active.Get(userKey, readSeq)
 	if !ok {
 		// Search in frozen memtables
 		rec, ok = db.searchFrozenMemtables(immutables, userKey, db.nextSeq-1)
@@ -329,6 +341,9 @@ func (db *DB) apply(seq uint64, userKey, value []byte, operation op.OpType) (ok 
 		log.Fatal("db not initialized. Call db.Open()")
 	}
 
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
 	switch operation {
 	case op.OpPut:
 		seq, err = db.wal.Put(userKey, value, db.nextSeq)
@@ -348,32 +363,43 @@ func (db *DB) apply(seq uint64, userKey, value []byte, operation op.OpType) (ok 
 	// Insert to active memtable
 	_, err = db.activeMem.Apply(userKey, value, seq, operation)
 
-	// TODO: Check for memtable flushing
+	// Check for memtable flushing
 	if db.activeMem.Size() >= db.memtableMaxSize {
 		// Flush to SST
-		db.freezeActiveMemtable()
-
-		// TODO: Trigger flushing
+		db.rotate()
 	}
 
 	return true, err
 }
 
-func (db *DB) freezeActiveMemtable() {
-	db.mu.Lock()
-
+// rotate freezes active memtable, appends it to immutable memtable,
+// rotates the active wal, then triggers flush to sst and wal compaction
+// (handled by background workers)
+func (db *DB) rotate() {
 	// Freeze the current active memtable
 	db.activeMem.Freeze()
 
 	frozen := db.activeMem
 
-	// Append the back
+	// Append the immutable memtable
 	db.frozenMems = append(db.frozenMems, frozen)
 
-	// Create a new active memtable
-	db.activeMem = memtable.NewMemtable(memtable.NewSkipList())
+	// Sync and close current wal
+	db.wal.Sync()
+	db.wal.Close()
 
-	db.mu.Unlock()
+	// Append the wal to walSegmentMeta
+	db.walSegments = append(db.walSegments, db.wal.WalSegmentMeta())
+
+	// Create a new active wal
+	activeWal := db.createActiveWAL(db.wal.WalSegmentMeta().Id + 1)
+
+	// Create a new active memtable
+	activeMem := memtable.NewMemtable(memtable.NewSkipList())
+
+	// switch wal and memtable
+	db.wal = activeWal
+	db.activeMem = activeMem
 
 	// PUT to flush channel for triggering flushing
 	db.flushChan <- frozen
@@ -515,22 +541,23 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 		return err
 	}
 
+	// Update the nextSstID atomically
+	nextSstID := atomic.AddInt64(&db.nextSstID, 1)
+
 	// Update manifest
 	db.manifest.Add(ManifestRecord{
 		Operation:   Add,
 		Level:       0,
-		FileID:      fmt.Sprintf("%06d", db.nextSstID),
+		FileID:      fmt.Sprintf("%06d", nextSstID-1),
 		SmallestKey: smKey,
 		LargestKey:  lgKey,
-		LastSeq:     db.nextSeq - 1,
+		LastSeq:     atomic.LoadUint64(&db.nextSeq) - 1,
 	})
 
 	// FSync manifest file
 	if err := db.manifest.FSync(); err != nil {
 		return err
 	}
-
-	db.nextSstID++
 
 	// Update checkpoint
 	db.checkpoint(maxSeq)
@@ -544,4 +571,42 @@ func (db *DB) checkpoint(seq uint64) {
 		log.Printf("[CHECKPOINT] error updting checkpoint , err: %v", err)
 	}
 
+	// TODO: Trigger WAL Compaction
+	db.cleanupWAL()
+}
+
+// WAL compaction
+func (db *DB) cleanupWAL() {
+	db.mu.Lock()
+	walSegments := make([]wal.WALSegmentMeta, len(db.walSegments))
+	copy(walSegments, db.walSegments)
+	db.mu.Unlock()
+
+	checkpointSeq, err := readCheckpoint(db.storageDir)
+	if err != nil {
+		log.Printf("[WAL CLEANUP] could not read checkpoint")
+		return
+	}
+
+	k := 0 // delete all WALs up to index K
+
+	for i, walSeg := range walSegments {
+		if walSeg.EndSeq <= checkpointSeq {
+			log.Printf("[WAL CLEANUP] cleanining wal. ID: %v, Path: %v", walSeg.Id, walSeg.Path)
+			// Safe to delete this wal
+			if err := os.Remove(walSeg.Path); err != nil {
+				log.Println("[WAL CLEANUP] error removing old wal file")
+			}
+		} else {
+			k = i
+			break // Since wals are ordered
+		}
+	}
+
+	// Truncate if we have atleast one wal to remove
+	if k != 0 {
+		db.mu.Lock()
+		db.walSegments = db.walSegments[k-1:] // k points to the current wal to keep(so we take k-1)
+		db.mu.Unlock()
+	}
 }
