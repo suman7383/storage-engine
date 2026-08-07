@@ -58,11 +58,16 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 	return s, nil
 }
 
-func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
+// GetBlock returns the block containing the key.
+// If the key is not present in this SST file, it returns nil.
+//
+// This function does not perform a linear search inside the block.
+// It only finds the block that may or may not contain the key.
+func (s *SstReader) GetBlock(key internalkey.InternalKey) *Block {
 	// Compare if the key lies between smallestKey and largestKey
 	// If not return early, as it is not present in this SST
 	if (key.IsLessThan(s.smallestKey) && key.CompareUserKeys(s.smallestKey) != 0) || key.IsGreaterThan(s.largestKey) {
-		return nil, false
+		return nil
 	}
 
 	log.Printf("[SST READER] key lies in current SST")
@@ -71,11 +76,19 @@ func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
 	blockOffset, found := s.binarySearchIndex(key)
 	if !found {
 		log.Println("[SST READER] not found in index")
-		return nil, false
+		return nil
 	}
 
 	// Read that data block and parse the entries
-	block := s.readBlock(blockOffset)
+	return s.readBlock(blockOffset)
+}
+
+// Get returns the value corresponding to the key, if it exists in this SST file. Otherwise returns nil.
+func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
+	block := s.GetBlock(key)
+	if block == nil {
+		return nil, false
+	}
 
 	// Linear search inside the block
 	return block.linearSearch(key)
