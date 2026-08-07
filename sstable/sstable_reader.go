@@ -78,44 +78,10 @@ func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
 	block := s.readBlock(blockOffset)
 
 	// Linear search inside the block
-	return s.linearSearchBlock(block, key)
+	return block.linearSearch(key)
 }
 
-// ----  Binary Layout ----
-//
-// | KeyLen  			| 4 bytes
-// | ValueLen 			| 4 bytes
-// | InternalKey      	|
-// | Value    			|
-func (s *SstReader) linearSearchBlock(block []byte, key internalkey.InternalKey) (value []byte, ok bool) {
-	offset := 0
-
-	for offset < len(block) {
-		keyLen := binary.LittleEndian.Uint32(block[offset : offset+4])
-		offset += 4
-
-		valueLen := binary.LittleEndian.Uint32(block[offset : offset+4])
-		offset += 4
-
-		ik := internalkey.InternalKey(block[offset : offset+int(keyLen)])
-		offset += int(keyLen)
-
-		// log.Printf("[SST READER] linear search comparing internalKey: %v", string(ik.UserKey()))
-
-		if ik.EqualUserKeys(key) && ik.IsPut() {
-			value = make([]byte, valueLen)
-			copy(value, block[offset:offset+int(valueLen)])
-
-			return value, true
-		}
-
-		offset += int(valueLen)
-	}
-
-	return nil, false
-}
-
-func (s *SstReader) readBlock(blockOffset uint64) []byte {
+func (s *SstReader) readBlock(blockOffset uint64) *Block {
 	// Seek to the block offset
 	s.fd.Seek(int64(blockOffset), io.SeekStart)
 	br := bufio.NewReader(s.fd)
@@ -138,7 +104,7 @@ func (s *SstReader) readBlock(blockOffset uint64) []byte {
 		panic("block is corrupt")
 	}
 
-	return buf
+	return &Block{data: buf}
 }
 
 // binarySearchIndex performs binary search on the indexEntries and returns the
