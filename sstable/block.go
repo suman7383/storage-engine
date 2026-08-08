@@ -45,3 +45,36 @@ func (b *Block) linearSearch(key internalkey.InternalKey) (value []byte, ok bool
 
 	return nil, false
 }
+
+func (b *Block) NewIterator() *BlockIterator {
+	return NewBlockIterator(b)
+}
+
+// MoveToNextEntry moves the offset to the next entry in the block and returns the next key/value pair.
+// It returns the new offset, the key, the value, and a boolean indicating if the next entry exists.
+func (b *Block) MoveToNextEntry(offset int) (nextOffset int, key []byte, value []byte, ok bool) {
+	// Check if offset is valid
+	if offset >= len(b.data) || offset < 0 || len(b.data[offset:]) < 8 {
+		return 0, nil, nil, false
+	}
+
+	// Read key length
+	keyLen := binary.LittleEndian.Uint32(b.data[offset : offset+4])
+	offset += 4
+
+	// Read value length
+	valueLen := binary.LittleEndian.Uint32(b.data[offset : offset+4])
+	offset += 4
+
+	// Read key
+	key = make([]byte, keyLen)
+	copy(key, b.data[offset:offset+int(keyLen)])
+	offset += int(keyLen)
+
+	// Read value
+	value = make([]byte, valueLen)
+	copy(value, b.data[offset:offset+int(valueLen)])
+	offset += int(valueLen)
+
+	return offset, key, value, true
+}
