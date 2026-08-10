@@ -1,12 +1,14 @@
 package sstable
 
+import "github.com/suman7383/storage-engine/internalkey"
+
 // BlockIterator is an iterator for traversing key/value pairs in a Block.
 type BlockIterator struct {
 	block *Block
 	// offset is the current position in the block data.
 	offset int
 
-	currentKey   []byte
+	currentKey   internalkey.InternalKey
 	currentValue []byte
 
 	// valid indicates whether the iterator is currently pointing to a valid key/value pair.
@@ -41,7 +43,7 @@ func (bi *BlockIterator) Next() bool {
 }
 
 // Key returns the current key in the block iterator.
-func (bi *BlockIterator) Key() []byte {
+func (bi *BlockIterator) Key() internalkey.InternalKey {
 	return bi.currentKey
 }
 

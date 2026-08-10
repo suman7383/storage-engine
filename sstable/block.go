@@ -52,10 +52,10 @@ func (b *Block) NewIterator() *BlockIterator {
 
 // MoveToNextEntry moves the offset to the next entry in the block and returns the next key/value pair.
 // It returns the new offset, the key, the value, and a boolean indicating if the next entry exists.
-func (b *Block) MoveToNextEntry(offset int) (nextOffset int, key []byte, value []byte, ok bool) {
+func (b *Block) MoveToNextEntry(offset int) (nextOffset int, key internalkey.InternalKey, value []byte, ok bool) {
 	// Check if offset is valid
 	if offset >= len(b.data) || offset < 0 || len(b.data[offset:]) < 8 {
-		return 0, nil, nil, false
+		return 0, internalkey.InternalKey(nil), nil, false
 	}
 
 	// Read key length
@@ -68,12 +68,12 @@ func (b *Block) MoveToNextEntry(offset int) (nextOffset int, key []byte, value [
 
 	// Check if there is enough data for the key and value
 	if remaining := len(b.data) - offset; remaining < int(keyLen+valueLen) {
-		return 0, nil, nil, false
+		return 0, internalkey.InternalKey(nil), nil, false
 	}
 
 	// Read key
-	key = make([]byte, keyLen)
-	copy(key, b.data[offset:offset+int(keyLen)])
+	keyBytes := make([]byte, keyLen)
+	copy(keyBytes, b.data[offset:offset+int(keyLen)])
 	offset += int(keyLen)
 
 	// Read value
@@ -81,5 +81,5 @@ func (b *Block) MoveToNextEntry(offset int) (nextOffset int, key []byte, value [
 	copy(value, b.data[offset:offset+int(valueLen)])
 	offset += int(valueLen)
 
-	return offset, key, value, true
+	return offset, internalkey.InternalKey(keyBytes), value, true
 }
