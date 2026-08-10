@@ -66,6 +66,11 @@ func (b *Block) MoveToNextEntry(offset int) (nextOffset int, key []byte, value [
 	valueLen := binary.LittleEndian.Uint32(b.data[offset : offset+4])
 	offset += 4
 
+	// Check if there is enough data for the key and value
+	if remaining := len(b.data) - offset; remaining < int(keyLen+valueLen) {
+		return 0, nil, nil, false
+	}
+
 	// Read key
 	key = make([]byte, keyLen)
 	copy(key, b.data[offset:offset+int(keyLen)])
