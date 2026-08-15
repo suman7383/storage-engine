@@ -9,31 +9,6 @@ import (
 	"github.com/suman7383/storage-engine/op"
 )
 
-type data struct {
-	Key   []byte
-	Value []byte
-}
-
-// Helper function to write a block with key-value pair
-// for testing purposes.
-// Binary layout:
-// | KeyLen  			| 4 bytes
-// | ValueLen 			| 4 bytes
-// | InternalKey      	|
-// | Value    			|
-func writeBlock(data []data) *Block {
-	var blockData []byte
-
-	for i, d := range data {
-		ik := internalkey.NewInternalKey(d.Key, uint64(i), op.OpPut) // sequence number is i, op is 0 (put)
-		b := EncodeEntry(ik, d.Value)
-
-		blockData = append(blockData, b...)
-	}
-
-	return &Block{data: blockData}
-}
-
 func TestLinearSearchEmptyBlock(t *testing.T) {
 	block := writeBlock([]data{})
 

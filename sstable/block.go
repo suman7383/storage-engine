@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 
 	"github.com/suman7383/storage-engine/internalkey"
+	"github.com/suman7383/storage-engine/op"
 )
 
 type Block struct {
@@ -82,4 +83,30 @@ func (b *Block) MoveToNextEntry(offset int) (nextOffset int, key internalkey.Int
 	offset += int(valueLen)
 
 	return offset, internalkey.InternalKey(keyBytes), value, true
+}
+
+// This is used in tests to create a block with key-value pairs for testing purposes.
+type data struct {
+	Key   []byte
+	Value []byte
+}
+
+// Helper function to write a block with key-value pair
+// for testing purposes.
+// Binary layout:
+// | KeyLen  			| 4 bytes
+// | ValueLen 			| 4 bytes
+// | InternalKey      	|
+// | Value    			|
+func writeBlock(data []data) *Block {
+	var blockData []byte
+
+	for i, d := range data {
+		ik := internalkey.NewInternalKey(d.Key, uint64(i), op.OpPut) // sequence number is i, op is 0 (put)
+		b := EncodeEntry(ik, d.Value)
+
+		blockData = append(blockData, b...)
+	}
+
+	return &Block{data: blockData}
 }
