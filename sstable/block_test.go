@@ -99,11 +99,11 @@ func TestMoveToNextEntry(t *testing.T) {
 		expectedKey := data[i-1].Key
 		expectedValue := data[i-1].Value
 
-		if !bytes.Equal(key.UserKey(), []byte(expectedKey)) {
+		if !bytes.Equal(key.UserKey(), expectedKey) {
 			t.Fatalf("Expected key '%s', got '%s'", expectedKey, string(key.UserKey()))
 		}
 
-		if !bytes.Equal(value, []byte(expectedValue)) {
+		if !bytes.Equal(value, expectedValue) {
 			t.Fatalf("Expected value '%s', got '%s'", expectedValue, string(value))
 		}
 
