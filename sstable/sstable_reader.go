@@ -94,6 +94,7 @@ func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
 	return block.linearSearch(key)
 }
 
+// readBlock reads the block placed after the blockOffset and returns it.
 func (s *SstReader) readBlock(blockOffset uint64) *Block {
 	// Seek to the block offset
 	s.fd.Seek(int64(blockOffset), io.SeekStart)
@@ -118,6 +119,18 @@ func (s *SstReader) readBlock(blockOffset uint64) *Block {
 	}
 
 	return &Block{data: buf}
+}
+
+// ReadBlockAtIndex reads the block at the given index and returns it.
+// It returns an error if the index is out of bounds.
+func (s *SstReader) ReadBlockAtIndex(index int) (*Block, error) {
+	if index < 0 || index >= len(s.indexEntries) {
+		return nil, errors.New("index out of bounds")
+	}
+
+	blockIdx := s.indexEntries[index]
+
+	return s.readBlock(blockIdx.blockOffset), nil
 }
 
 // binarySearchIndex performs binary search on the indexEntries and returns the
