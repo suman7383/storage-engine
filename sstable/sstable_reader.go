@@ -133,6 +133,22 @@ func (s *SstReader) ReadBlockAtIndex(index int) (*Block, error) {
 	return s.readBlock(blockIdx.blockOffset), nil
 }
 
+// NumberOfBlocks returns the number of blocks in the SST file.
+func (s *SstReader) NumberOfBlocks() int {
+	return len(s.indexEntries)
+}
+
+// NewIterator returns an iterator over the blocks of the SST file.
+// Use SeekToFirst to initialize iterator at the first block.
+// Then use Next to iterate over the blocks.
+func (s *SstReader) NewIterator() *SstIterator {
+	return &SstIterator{
+		reader:            s,
+		blockIterator:     nil,
+		currentBlockIndex: -1,
+	}
+}
+
 // binarySearchIndex performs binary search on the indexEntries and returns the
 // block offset.
 // ok indicates whether the block is found or not
