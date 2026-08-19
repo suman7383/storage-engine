@@ -1,6 +1,10 @@
 package sstable
 
-import "github.com/suman7383/storage-engine/internalkey"
+import (
+	"log/slog"
+
+	"github.com/suman7383/storage-engine/internalkey"
+)
 
 type SstIterator struct {
 	reader        *SstReader
@@ -62,6 +66,7 @@ func (si *SstIterator) Next() {
 	}
 
 	// Current block exhausted, move to next block
+	slog.Info("Current block exhausted, moving to next block", slog.Int("currentBlockIndex", si.currentBlockIndex))
 	si.currentBlockIndex++
 	if si.currentBlockIndex >= si.reader.NumberOfBlocks() {
 		// SST exhausted. No more blocks to iterate over.
