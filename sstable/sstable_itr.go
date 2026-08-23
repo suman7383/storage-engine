@@ -1,8 +1,6 @@
 package sstable
 
 import (
-	"log/slog"
-
 	"github.com/suman7383/storage-engine/internalkey"
 )
 
@@ -54,27 +52,27 @@ func (si *SstIterator) SeekToKey(key internalkey.InternalKey) error {
 }
 
 // Next moves the iterator to the next block.
-func (si *SstIterator) Next() {
+func (si *SstIterator) Next() bool {
 	if si.blockIterator == nil {
-		return
+		return false
 	}
 
 	si.blockIterator.Next()
 
 	if si.blockIterator.Valid() {
-		return
+		return true
 	}
 
 	// Current block exhausted, move to next block
-	slog.Info("Current block exhausted, moving to next block", slog.Int("currentBlockIndex", si.currentBlockIndex))
 	si.currentBlockIndex++
 	if si.currentBlockIndex >= si.reader.NumberOfBlocks() {
 		// SST exhausted. No more blocks to iterate over.
 		si.blockIterator = nil
-		return
+		return false
 	}
 
 	si.loadBlock()
+	return si.Valid()
 }
 
 // TODO: Prev moves the iterator to the previous block.
