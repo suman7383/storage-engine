@@ -64,13 +64,6 @@ const memtableMaxSize = 16 * 1024 * 1024 // 16MB
 const blockSize = 4 * 1024               // 4KB
 
 func NewDB(options Options) *DB {
-
-	levels := make([][]*sstable.SstReader, 0, 5)
-
-	for _ = range 5 {
-		levels = append(levels, []*sstable.SstReader{})
-	}
-
 	return &DB{
 		storageDir:  options.StorageDir,
 		walSegments: make([]wal.WALSegmentMeta, 0, 10),
@@ -88,7 +81,6 @@ func NewDB(options Options) *DB {
 	}
 }
 
-// TODO:
 // Load manifests
 // Discover SST files
 // Recover wal
@@ -138,17 +130,20 @@ func (db *DB) Open() {
 	go db.flushMemtableWorker()
 
 	// DEBUGGING
-	go func() {
-		t := time.NewTicker(5 * time.Second)
+	go db.printMemoryStats(5 * time.Second)
+}
 
-		defer t.Stop()
+// printMemoryStats prints the memory usage of the memtable periodically
+func (db *DB) printMemoryStats(interval time.Duration) {
+	t := time.NewTicker(interval)
 
-		for _ = range t.C {
-			kb := math.Floor(float64(db.activeMem.Size() / 1024))
-			mb := math.Floor(float64(db.activeMem.Size() / 1024 / 1024))
-			log.Printf("[INFO] memtable size: %v KB, %v MB", kb, mb)
-		}
-	}()
+	defer t.Stop()
+
+	for range t.C {
+		kb := math.Floor(float64(db.activeMem.Size() / 1024))
+		mb := math.Floor(float64(db.activeMem.Size() / 1024 / 1024))
+		log.Printf("[INFO] memtable size: %v KB, %v MB", kb, mb)
+	}
 }
 
 func (db *DB) createActiveWAL(activeWalID uint64) *wal.WAL {
@@ -559,10 +554,35 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 		return err
 	}
 
+	// Create and append sst reader to level 0
+	db.appendSstReaderToLevel(finalSstFiletPath, smKey, lgKey)
+
 	// Update checkpoint
 	db.checkpoint(maxSeq)
 
 	return nil
+}
+
+// Appends sst reader to level 0
+func (db *DB) appendSstReaderToLevel(finalSstFiletPath string, smallestKey, largestKey []byte) {
+	fd, err := os.OpenFile(finalSstFiletPath, os.O_RDONLY, 0644)
+	if err != nil {
+		log.Fatal("Error opening SST file:", err)
+	}
+
+	fSize, err := fd.Stat()
+	if err != nil {
+		log.Fatal("Error getting SST file size:", err)
+	}
+
+	sr, err := sstable.NewSstReader(fd, fSize.Size(), smallestKey, largestKey)
+	if err != nil {
+		log.Fatal("Error creating SST reader:", err)
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.levels[0] = append(db.levels[0], sr)
 }
 
 func (db *DB) checkpoint(seq uint64) {

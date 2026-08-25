@@ -33,3 +33,4 @@ go.work.sum
 
 example
 tmp
+COMPACTION_CONTEXT.md
