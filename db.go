@@ -185,17 +185,38 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 
 	var maxSstID int
 
+	activeSst := make(map[string]bool)
+	sstRecords := make([]ManifestRecord, 0, 10)
+
+	// First pass: Get all the sst records and mark active/deleted
 	for itr.Next() {
 		rec := itr.Value()
 
 		log.Printf("[SST] loading rec: %v, level: %v\n", rec.FileID, rec.Level)
 
 		if rec.Operation == Delete {
+			activeSst[rec.FileID] = false
 			log.Printf("[SST] skipping DEL rec: %v, level: %v\n", rec.FileID, rec.Level)
 			continue
 		}
 
-		filePath := filepath.Join(sstDir, rec.FileID+".sst")
+		activeSst[rec.FileID] = true
+
+		sstRecords = append(sstRecords, rec)
+	}
+
+	if itr.Err() != nil && itr.Err() != io.EOF {
+		log.Fatalf("error iterating through manifest records: %v", itr.Err())
+	}
+
+	// Filter only those sst records that are active
+	for _, sstRec := range sstRecords {
+
+		if !activeSst[sstRec.FileID] {
+			continue
+		}
+
+		filePath := filepath.Join(sstDir, sstRec.FileID+".sst")
 		fd, err := os.Open(filePath)
 		if err != nil {
 			log.Fatalf("could not load SST file: %v", err)
@@ -206,25 +227,21 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 			log.Fatalf("could not Get SST file size: %v", err)
 		}
 
-		sstReader, err := sstable.NewSstReader(fd, fSize.Size(), rec.SmallestKey, rec.LargestKey)
+		sstReader, err := sstable.NewSstReader(fd, fSize.Size(), sstRec.SmallestKey, sstRec.LargestKey)
 		if err != nil {
 			log.Fatalf("could not create SST file reader: %v", err)
 		}
 
 		// Append at the back of the level
-		db.levels[rec.Level] = append(db.levels[rec.Level], sstReader)
+		db.levels[sstRec.Level] = append(db.levels[sstRec.Level], sstReader)
 
-		fileIDNum, err := strconv.Atoi(rec.FileID)
+		fileIDNum, err := strconv.Atoi(sstRec.FileID)
 		if err != nil {
 			log.Fatalln("Could not convert SST fileID string to int", err)
 		}
 
 		maxSstID = max(maxSstID, fileIDNum)
-		maxSeq = max(maxSeq, rec.LastSeq)
-	}
-
-	if itr.Err() != nil && itr.Err() != io.EOF {
-		log.Fatalf("error iterating through manifest records: %v", itr.Err())
+		maxSeq = max(maxSeq, sstRec.LastSeq)
 	}
 
 	db.nextSstID = int64(maxSstID) + 1
