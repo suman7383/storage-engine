@@ -84,6 +84,9 @@ func (s *SstReader) GetBlock(key internalkey.InternalKey) *Block {
 }
 
 // Get returns the value corresponding to the key, if it exists in this SST file. Otherwise returns nil.
+// If the key is not present in this SST file, it returns nil, false
+// If the key is present, but it is a tombstone, it returns nil, true
+// If the key is present, and it is a put, it returns the value, true
 func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
 	block := s.GetBlock(key)
 	if block == nil {
@@ -91,7 +94,17 @@ func (s *SstReader) Get(key internalkey.InternalKey) (value []byte, ok bool) {
 	}
 
 	// Linear search inside the block
-	return block.linearSearch(key)
+	value, isPresent, isTombstone := block.linearSearch(key)
+
+	if !isPresent {
+		return nil, false
+	}
+
+	if isTombstone {
+		return nil, true
+	}
+
+	return value, true
 }
 
 // readBlock reads the block placed after the blockOffset and returns it.

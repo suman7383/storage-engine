@@ -19,7 +19,10 @@ type Block struct {
 // | ValueLen 			| 4 bytes
 // | InternalKey      	|
 // | Value    			|
-func (b *Block) linearSearch(key internalkey.InternalKey) (value []byte, ok bool) {
+//
+// It returns the value if present. If not found, it returns nil, false, false
+// If the value is a tombstone, it returns nil, true, true
+func (b *Block) linearSearch(key internalkey.InternalKey) (value []byte, isPresent bool, isTombstone bool) {
 	offset := 0
 
 	for offset < len(b.data) {
@@ -34,17 +37,21 @@ func (b *Block) linearSearch(key internalkey.InternalKey) (value []byte, ok bool
 
 		// log.Printf("[SST READER] linear search comparing internalKey: %v", string(ik.UserKey()))
 
-		if ik.EqualUserKeys(key) && ik.IsPut() {
-			value = make([]byte, valueLen)
-			copy(value, b.data[offset:offset+int(valueLen)])
+		if ik.EqualUserKeys(key) {
+			if ik.IsPut() {
+				value = make([]byte, valueLen)
+				copy(value, b.data[offset:offset+int(valueLen)])
 
-			return value, true
+				return value, true, false
+			}
+
+			return nil, true, true
 		}
 
 		offset += int(valueLen)
 	}
 
-	return nil, false
+	return nil, false, false
 }
 
 func (b *Block) NewIterator() *BlockIterator {
