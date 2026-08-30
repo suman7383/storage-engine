@@ -13,9 +13,9 @@ func TestLinearSearchEmptyBlock(t *testing.T) {
 	block := writeBlock([]data{})
 
 	ik := internalkey.NewInternalKey([]byte("key1"), 0, op.OpPut)
-	value, ok := block.linearSearch(ik)
+	value, isPresent, isTomstone := block.linearSearch(ik)
 
-	if ok {
+	if isPresent || isTomstone {
 		t.Fatalf("Expected not to find key, but found value: %s", string(value))
 	}
 }
@@ -26,9 +26,9 @@ func TestLinearSearchSingleEntry(t *testing.T) {
 	})
 
 	ik := internalkey.NewInternalKey([]byte("key1"), 0, op.OpPut)
-	value, ok := block.linearSearch(ik)
+	value, isPresent, _ := block.linearSearch(ik)
 
-	if !ok {
+	if !isPresent {
 		t.Fatalf("Expected to find key, but did not")
 	}
 
@@ -38,9 +38,9 @@ func TestLinearSearchSingleEntry(t *testing.T) {
 
 	// Test for a non-existing key
 	ik2 := internalkey.NewInternalKey([]byte("key2"), 0, op.OpPut)
-	value2, ok2 := block.linearSearch(ik2)
+	value2, isPresent, isTomstone := block.linearSearch(ik2)
 
-	if ok2 {
+	if isPresent || isTomstone {
 		t.Fatalf("Expected not to find key, but found value: %s", string(value2))
 	}
 }
@@ -58,9 +58,9 @@ func TestLinearSearchMultipleEntries(t *testing.T) {
 		expectedValue := "value" + fmt.Sprintf("%d", i)
 
 		ik := internalkey.NewInternalKey(key, 0, op.OpPut)
-		value, ok := block.linearSearch(ik)
+		value, isPresent, isTomstone := block.linearSearch(ik)
 
-		if !ok {
+		if !isPresent || isTomstone {
 			t.Fatalf("Expected to find key %s, but did not", string(key))
 		}
 
@@ -71,9 +71,9 @@ func TestLinearSearchMultipleEntries(t *testing.T) {
 
 	// Test for a non-existing key
 	ik2 := internalkey.NewInternalKey([]byte("key4"), 0, op.OpPut)
-	value2, ok2 := block.linearSearch(ik2)
+	value2, isPresent, isTomstone := block.linearSearch(ik2)
 
-	if ok2 {
+	if isPresent || isTomstone {
 		t.Fatalf("Expected not to find key, but found value: %s", string(value2))
 	}
 }
