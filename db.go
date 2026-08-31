@@ -50,6 +50,10 @@ type DB struct {
 	levels    [][]*sstable.SstReader
 	nextSstID int64
 
+	// Adding Version(for sst)
+	currentVersion *Version
+	versionMu      sync.RWMutex
+
 	nextSeq uint64
 
 	mu sync.RWMutex
@@ -74,6 +78,10 @@ func NewDB(options Options) *DB {
 		maxImmutableMemtables: options.MaxImmutableMemtables, // At most 2 immutable memtables waiting for flush
 
 		levels: make([][]*sstable.SstReader, 5),
+
+		currentVersion: &Version{
+			levels: make([][]*sstable.SstReader, 5),
+		},
 
 		isInitialized: false,
 
