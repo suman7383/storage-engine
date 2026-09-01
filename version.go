@@ -1,6 +1,10 @@
 package storageengine
 
-import "github.com/suman7383/storage-engine/sstable"
+import (
+	"slices"
+
+	"github.com/suman7383/storage-engine/sstable"
+)
 
 type Version struct {
 	levels [][]*sstable.SstReader
@@ -11,6 +15,16 @@ func NewVersion() *Version {
 	return &Version{
 		levels: make([][]*sstable.SstReader, 5),
 	}
+}
+
+func (v *Version) Clone() *Version {
+	newVersion := NewVersion()
+
+	for level := range v.levels {
+		newVersion.levels[level] = slices.Clone(v.levels[level])
+	}
+
+	return newVersion
 }
 
 // getCurrentVersion safely reads the currentVersion pointer and returns it.

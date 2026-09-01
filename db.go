@@ -48,7 +48,7 @@ type DB struct {
 	maxImmutableMemtables int
 
 	// SST
-	levels    [][]*sstable.SstReader
+	// levels    [][]*sstable.SstReader
 	nextSstID int64
 
 	// Adding Version(for sst)
@@ -78,7 +78,7 @@ func NewDB(options Options) *DB {
 		memtableMaxSize:       options.MemtableMaxSize,
 		maxImmutableMemtables: options.MaxImmutableMemtables, // At most 2 immutable memtables waiting for flush
 
-		levels: make([][]*sstable.SstReader, 5),
+		// levels: make([][]*sstable.SstReader, 5),
 
 		currentVersion: &Version{
 			levels: make([][]*sstable.SstReader, 5),
@@ -243,10 +243,6 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 		if err != nil {
 			log.Fatalf("could not create SST file reader: %v", err)
 		}
-
-		// Append at the back of the level
-		// !Important: Delete this later(we use versions)
-		db.levels[sstRec.Level] = append(db.levels[sstRec.Level], sstReader)
 
 		// update the version
 		version.levels[sstRec.Level] = append(version.levels[sstRec.Level], sstReader)
@@ -455,31 +451,6 @@ func (db *DB) searchFrozenMemtables(immutables []*memtable.Memtable, userKey []b
 	return nil, false
 }
 
-// !important: remove this later
-//
-// Deprecated: Use searchSSTUsingVersion instead
-func (db *DB) searchSST(userKey []byte, snapshotSeq uint64) (val []byte, ok bool) {
-	log.Print("[GET] searching in SST")
-
-	ikey := internalkey.MakeInternalLookupKey(userKey, snapshotSeq)
-
-	// Search each level from back
-	for _, level := range db.levels {
-		// Search backwards (because latest sst is at the end of the current level)
-		for i := len(level) - 1; i >= 0; i-- {
-			sr := level[i]
-
-			if val, ok = sr.Get(ikey); ok {
-				return val, ok
-			}
-		}
-	}
-
-	log.Print("[GET] Not found in SST")
-
-	return nil, false
-}
-
 // searchSSTUsingVersion searches the SSTs in the given version for the user key and snapshot sequence.
 func (db *DB) searchSSTUsingVersion(v *Version, userKey []byte, snapshotSeq uint64) (val []byte, ok bool) {
 	log.Print("[GET] searching in SST")
@@ -618,8 +589,12 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 		return err
 	}
 
-	// Create and append sst reader to level 0
-	db.appendSstReaderToLevel(finalSstFiletPath, smKey, lgKey)
+	// Clone version and append sst reader to level 0
+	clonedVersion := db.getCurrentVersion().Clone()
+	db.appendSstReaderToLevel(clonedVersion, finalSstFiletPath, smKey, lgKey)
+
+	// Install new version
+	db.installVersion(clonedVersion)
 
 	// Update checkpoint
 	db.checkpoint(maxSeq)
@@ -628,7 +603,7 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 }
 
 // Appends sst reader to level 0
-func (db *DB) appendSstReaderToLevel(finalSstFiletPath string, smallestKey, largestKey []byte) {
+func (db *DB) appendSstReaderToLevel(v *Version, finalSstFiletPath string, smallestKey, largestKey []byte) {
 	fd, err := os.OpenFile(finalSstFiletPath, os.O_RDONLY, 0644)
 	if err != nil {
 		log.Fatal("Error opening SST file:", err)
@@ -644,9 +619,7 @@ func (db *DB) appendSstReaderToLevel(finalSstFiletPath string, smallestKey, larg
 		log.Fatal("Error creating SST reader:", err)
 	}
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	db.levels[0] = append(db.levels[0], sr)
+	v.levels[0] = append(v.levels[0], sr)
 }
 
 func (db *DB) checkpoint(seq uint64) {
