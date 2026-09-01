@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -189,6 +190,9 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 		return
 	}
 
+	// Create an empty version for now
+	version := NewVersion()
+
 	itr := db.manifest.NewIterator()
 
 	var maxSstID int
@@ -241,7 +245,11 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 		}
 
 		// Append at the back of the level
+		// !Important: Delete this later(we use versions)
 		db.levels[sstRec.Level] = append(db.levels[sstRec.Level], sstReader)
+
+		// update the version
+		version.levels[sstRec.Level] = append(version.levels[sstRec.Level], sstReader)
 
 		fileIDNum, err := strconv.Atoi(sstRec.FileID)
 		if err != nil {
@@ -252,6 +260,10 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 		maxSeq = max(maxSeq, sstRec.LastSeq)
 	}
 
+	// Install the version
+	db.installVersion(version)
+
+	// Set nextSstID
 	db.nextSstID = int64(maxSstID) + 1
 
 	return maxSeq
@@ -329,8 +341,11 @@ func (db *DB) Get(userKey []byte) (value []byte, ok bool) {
 		rec, ok = db.searchFrozenMemtables(immutables, userKey, db.nextSeq-1)
 
 		if !ok {
-			// Search SST
-			if val, ok := db.searchSST(userKey, db.nextSeq-1); ok {
+			// Get current version
+			currentVersion := db.getCurrentVersion()
+
+			// Search SST using that version
+			if val, ok := db.searchSSTUsingVersion(currentVersion, userKey, db.nextSeq-1); ok {
 				return val, ok
 			}
 
@@ -440,6 +455,9 @@ func (db *DB) searchFrozenMemtables(immutables []*memtable.Memtable, userKey []b
 	return nil, false
 }
 
+// !important: remove this later
+//
+// Deprecated: Use searchSSTUsingVersion instead
 func (db *DB) searchSST(userKey []byte, snapshotSeq uint64) (val []byte, ok bool) {
 	log.Print("[GET] searching in SST")
 
@@ -451,6 +469,27 @@ func (db *DB) searchSST(userKey []byte, snapshotSeq uint64) (val []byte, ok bool
 		for i := len(level) - 1; i >= 0; i-- {
 			sr := level[i]
 
+			if val, ok = sr.Get(ikey); ok {
+				return val, ok
+			}
+		}
+	}
+
+	log.Print("[GET] Not found in SST")
+
+	return nil, false
+}
+
+// searchSSTUsingVersion searches the SSTs in the given version for the user key and snapshot sequence.
+func (db *DB) searchSSTUsingVersion(v *Version, userKey []byte, snapshotSeq uint64) (val []byte, ok bool) {
+	log.Print("[GET] searching in SST")
+
+	ikey := internalkey.MakeInternalLookupKey(userKey, snapshotSeq)
+
+	// Search each level from back
+	for _, level := range v.levels {
+		// Search backwards (because latest sst is at the end of the current level)
+		for _, sr := range slices.Backward(level) {
 			if val, ok = sr.Get(ikey); ok {
 				return val, ok
 			}
