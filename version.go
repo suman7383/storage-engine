@@ -2,12 +2,14 @@ package storageengine
 
 import (
 	"slices"
+	"sync/atomic"
 
 	"github.com/suman7383/storage-engine/sstable"
 )
 
 type Version struct {
 	levels [][]*sstable.SstReader
+	refs   atomic.Uint32
 }
 
 // Creates a new version with empty levels
@@ -42,4 +44,22 @@ func (db *DB) installVersion(v *Version) {
 	db.versionMu.Lock()
 	defer db.versionMu.Unlock()
 	db.currentVersion = v
+}
+
+// Get the current version and increment its reference count
+// Caller MUST call release on the returned version when done
+func (db *DB) AcquireVersion() *Version {
+	db.versionMu.RLock()
+	defer db.versionMu.RUnlock()
+
+	currentVersion := db.currentVersion
+	currentVersion.refs.Add(1)
+	return currentVersion
+}
+
+// decrement reference count and free if 0
+func (v *Version) Release() {
+	// This basically does -1, since we are adding maxUint32 to it
+	// effectively decrementing the reference count without overflow.
+	v.refs.Add(^uint32(0))
 }
