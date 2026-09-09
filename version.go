@@ -1,7 +1,6 @@
 package storageengine
 
 import (
-	"slices"
 	"sync/atomic"
 
 	"github.com/suman7383/storage-engine/sstable"
@@ -19,11 +18,22 @@ func NewVersion() *Version {
 	}
 }
 
+// Clone copies the levels of the version 'v',
+// therefore copying the *SstReader at each level
+// and calls Acquire() on the readers, which increases
+// the refs count on the underlying *SstReader.
 func (v *Version) Clone() *Version {
 	newVersion := NewVersion()
 
-	for level := range v.levels {
-		newVersion.levels[level] = slices.Clone(v.levels[level])
+	for i, level := range v.levels {
+		newVersion.levels[i] = make([]*sstable.SstReader, len(level))
+
+		for j, reader := range level {
+			if reader != nil {
+				reader.Acquire()
+				newVersion.levels[i][j] = reader
+			}
+		}
 	}
 
 	return newVersion
@@ -57,9 +67,17 @@ func (db *DB) AcquireVersion() *Version {
 	return currentVersion
 }
 
-// decrement reference count and free if 0
+// decrement reference count. If refs == 0,
+// call Release() on each *SstReader on each level
+// to release the ref this version is holding onto it.
 func (v *Version) Release() {
 	// This basically does -1, since we are adding maxUint32 to it
 	// effectively decrementing the reference count without overflow.
-	v.refs.Add(^uint32(0))
+	if v.refs.Add(^uint32(0)) == 0 {
+		for _, level := range v.levels {
+			for _, reader := range level {
+				reader.Release()
+			}
+		}
+	}
 }

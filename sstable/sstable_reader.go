@@ -298,12 +298,22 @@ func (s *SstReader) loadIndex(indexEntryCount uint32, indexOffset, indexSize uin
 	return nil
 }
 
+func (s *SstReader) Close() {
+	s.fd.Close()
+}
+
 func (s *SstReader) Acquire() {
 	s.refs.Add(1)
 }
 
+// Release decrements the refs count by 1.
+// If refs == 0, we call the Close() on the reader since
+// there is no active versiont that references this reader, it is
+// safe to close the reader.
 func (s *SstReader) Release() {
 	// This basically does -1, since we are adding maxUint32 to it
 	// effectively decrementing the reference count without overflow.
-	s.refs.Add(^uint32(0))
+	if s.refs.Add(^uint32(0)) == 0 {
+		s.Close()
+	}
 }
