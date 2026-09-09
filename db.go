@@ -178,7 +178,6 @@ func (db *DB) IsInitialized() bool {
 	return db.isInitialized
 }
 
-// TODO: Scan the manifest file and load the SSTs
 func (db *DB) discoverSSTs() (maxSeq uint64) {
 	log.Println("[SST] discovering SST files")
 
@@ -338,7 +337,8 @@ func (db *DB) Get(userKey []byte) (value []byte, ok bool) {
 
 		if !ok {
 			// Get current version
-			currentVersion := db.getCurrentVersion()
+			currentVersion := db.AcquireVersion()
+			defer currentVersion.Release()
 
 			// Search SST using that version
 			if val, ok := db.searchSSTUsingVersion(currentVersion, userKey, db.nextSeq-1); ok {

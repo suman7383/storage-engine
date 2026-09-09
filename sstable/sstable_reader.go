@@ -8,6 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"sync/atomic"
 
 	"github.com/suman7383/storage-engine/internalkey"
 )
@@ -23,6 +24,8 @@ type SstReader struct {
 
 	smallestKey internalkey.InternalKey
 	largestKey  internalkey.InternalKey
+
+	refs atomic.Uint32
 }
 
 // Creates and initializes(parses footer, index) the sst reader.
@@ -38,6 +41,9 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 		smallestKey: smallestKey,
 		largestKey:  largestKey,
 	}
+
+	// Start with one owner(whoever called NewSstReader)
+	s.refs.Store(1)
 
 	indexEntryCount, indexOffset, indexSize, err := s.readFooter()
 	if err != nil {
@@ -290,4 +296,14 @@ func (s *SstReader) loadIndex(indexEntryCount uint32, indexOffset, indexSize uin
 	}
 
 	return nil
+}
+
+func (s *SstReader) Acquire() {
+	s.refs.Add(1)
+}
+
+func (s *SstReader) Release() {
+	// This basically does -1, since we are adding maxUint32 to it
+	// effectively decrementing the reference count without overflow.
+	s.refs.Add(^uint32(0))
 }
