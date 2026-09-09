@@ -11,11 +11,16 @@ type Version struct {
 	refs   atomic.Uint32
 }
 
-// Creates a new version with empty levels
+// Creates a new version with empty levels.
+// Initializes the refs count to 1.
 func NewVersion() *Version {
-	return &Version{
+	ver := &Version{
 		levels: make([][]*sstable.SstReader, 5),
 	}
+
+	ver.refs.Store(1)
+
+	return ver
 }
 
 // Clone copies the levels of the version 'v',
