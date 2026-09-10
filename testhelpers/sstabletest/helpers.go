@@ -5,10 +5,12 @@
 package testhelper
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
 	"github.com/suman7383/storage-engine/internalkey"
+	"github.com/suman7383/storage-engine/op"
 	"github.com/suman7383/storage-engine/sstable"
 )
 
@@ -60,4 +62,21 @@ func CreateTestSSTable(t *testing.T, entries []Entry, blockSize int) *sstable.Ss
 	}
 
 	return reader
+}
+
+// makeTestEntries creates a list of test entries.
+//
+// It creates n entries with keys from "key-0" to "key-(n-1)" and
+// values from "value-0" to "value-(n-1)".
+func MakeTestEntries(n int) []Entry {
+	entries := make([]Entry, n)
+
+	for i := range n {
+		entries[i] = Entry{
+			Key:   internalkey.NewInternalKey(fmt.Appendf(nil, "key-%d", i), uint64(i), op.OpPut),
+			Value: fmt.Appendf(nil, "value-%d", i),
+		}
+	}
+
+	return entries
 }

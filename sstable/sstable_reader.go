@@ -26,6 +26,9 @@ type SstReader struct {
 	largestKey  internalkey.InternalKey
 
 	refs atomic.Uint32
+
+	// Tracks whether the sstreader's fd has been closed
+	IsClosed bool
 }
 
 // Creates and initializes(parses footer, index) the sst reader.
@@ -40,6 +43,8 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 
 		smallestKey: smallestKey,
 		largestKey:  largestKey,
+
+		IsClosed: false,
 	}
 
 	// Start with one owner(whoever called NewSstReader)
@@ -300,6 +305,7 @@ func (s *SstReader) loadIndex(indexEntryCount uint32, indexOffset, indexSize uin
 
 func (s *SstReader) Close() {
 	s.fd.Close()
+	s.IsClosed = true
 }
 
 func (s *SstReader) Acquire() {
