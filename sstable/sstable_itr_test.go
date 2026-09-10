@@ -1,76 +1,27 @@
-package sstable
+package sstable_test
 
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"testing"
 
 	"github.com/suman7383/storage-engine/internalkey"
 	"github.com/suman7383/storage-engine/op"
+	"github.com/suman7383/storage-engine/sstable"
+	testhelper "github.com/suman7383/storage-engine/testhelpers/sstabletest"
 )
-
-// entry holds the key-value pair.
-type entry struct {
-	key   internalkey.InternalKey
-	value []byte
-}
-
-// For testing create test sstable
-//
-// Add entries in the sstable and flush it.
-// Then, open the sstable and return the sst reader.
-func createTestSSTable(t *testing.T, entries []entry, blockSize int) *SstReader {
-	// create temporary file path
-	tmpPath := t.TempDir() + "/test.sst"
-
-	// Create the sst file
-	f, err := os.Create(tmpPath)
-	if err != nil {
-		t.Fatalf("failed to create sst file: %v", err)
-	}
-
-	// Create the sst builder
-	builder := NewSstBuilder(f, blockSize)
-
-	// Add entries to the sst
-	for _, e := range entries {
-		if err := builder.Add(e.key, e.value); err != nil {
-			t.Fatalf("failed to add entry: %v", err)
-		}
-	}
-
-	// Flush the sst
-	smK, lgK, err := builder.Finish()
-	if err != nil {
-		t.Fatalf("failed to flush sst: %v", err)
-	}
-
-	fStat, err := f.Stat()
-	if err != nil {
-		t.Fatalf("failed to get sst file stat: %v", err)
-	}
-
-	// Create sst file reader
-	reader, err := NewSstReader(f, fStat.Size(), smK, lgK)
-	if err != nil {
-		t.Fatalf("failed to create sst reader: %v", err)
-	}
-
-	return reader
-}
 
 // makeTestEntries creates a list of test entries.
 //
 // It creates n entries with keys from "key-0" to "key-(n-1)" and
 // values from "value-0" to "value-(n-1)".
-func makeTestEntries(n int) []entry {
-	entries := make([]entry, n)
+func makeTestEntries(n int) []testhelper.Entry {
+	entries := make([]testhelper.Entry, n)
 
 	for i := range n {
-		entries[i] = entry{
-			key:   internalkey.NewInternalKey(fmt.Appendf(nil, "key-%d", i), uint64(i), op.OpPut),
-			value: fmt.Appendf(nil, "value-%d", i),
+		entries[i] = testhelper.Entry{
+			Key:   internalkey.NewInternalKey(fmt.Appendf(nil, "key-%d", i), uint64(i), op.OpPut),
+			Value: fmt.Appendf(nil, "value-%d", i),
 		}
 	}
 
@@ -98,9 +49,9 @@ func assertEqualInt(t *testing.T, a, b int) {
 	}
 }
 
-func createTestSSTIterator(t *testing.T, entryCount int, blockSize int) (*SstIterator, []entry) {
+func createTestSSTIterator(t *testing.T, entryCount int, blockSize int) (*sstable.SstIterator, []testhelper.Entry) {
 	entries := makeTestEntries(entryCount)
-	reader := createTestSSTable(t, entries, blockSize)
+	reader := testhelper.CreateTestSSTable(t, entries, blockSize)
 	return reader.NewIterator(), entries
 }
 
@@ -116,8 +67,8 @@ func TestSstIterator_SingleBlock(t *testing.T) {
 	// iterate over all entries
 	i := 0
 	for iter.Valid() {
-		assertEqualUserKeys(t, iter.Key(), entries[i].key)
-		assertEqualUserValues(t, iter.Value(), entries[i].value)
+		assertEqualUserKeys(t, iter.Key(), entries[i].Key)
+		assertEqualUserValues(t, iter.Value(), entries[i].Value)
 		iter.Next()
 		i++
 	}
@@ -143,8 +94,8 @@ func TestSstIterator_MultipleBlocks(t *testing.T) {
 	// iterate over all entries
 	i := 0
 	for iter.Valid() {
-		assertEqualUserKeys(t, iter.Key(), entries[i].key)
-		assertEqualUserValues(t, iter.Value(), entries[i].value)
+		assertEqualUserKeys(t, iter.Key(), entries[i].Key)
+		assertEqualUserValues(t, iter.Value(), entries[i].Value)
 		iter.Next()
 		i++
 	}
@@ -185,8 +136,8 @@ func TestSstIterator_SeekToFirstAfterExhaustion(t *testing.T) {
 	if !iter.Valid() {
 		t.Fatalf("Expected Valid() to be true")
 	}
-	assertEqualUserKeys(t, iter.Key(), entries[0].key)
-	assertEqualUserValues(t, iter.Value(), entries[0].value)
+	assertEqualUserKeys(t, iter.Key(), entries[0].Key)
+	assertEqualUserValues(t, iter.Value(), entries[0].Value)
 }
 
 // TestSstIterator_Exhaustion tests the sst iterator with exhaustion.
@@ -230,8 +181,8 @@ func TestSstIterator_SingleEntry(t *testing.T) {
 	// iterate over all entries
 	i := 0
 	for iter.Valid() {
-		assertEqualUserKeys(t, iter.Key(), entries[i].key)
-		assertEqualUserValues(t, iter.Value(), entries[i].value)
+		assertEqualUserKeys(t, iter.Key(), entries[i].Key)
+		assertEqualUserValues(t, iter.Value(), entries[i].Value)
 		iter.Next()
 		i++
 	}
