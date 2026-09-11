@@ -589,8 +589,15 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 		return err
 	}
 
+	// Acquire the current version
+	currentVer := db.AcquireVersion()
+
 	// Clone version and append sst reader to level 0
-	clonedVersion := db.getCurrentVersion().Clone()
+	clonedVersion := currentVer.Clone()
+
+	// Release the current version
+	currentVer.Release()
+
 	db.appendSstReaderToLevel(clonedVersion, finalSstFiletPath, smKey, lgKey)
 
 	// Install new version
