@@ -58,7 +58,14 @@ func (db *DB) getCurrentVersion() *Version {
 func (db *DB) installVersion(v *Version) {
 	db.versionMu.Lock()
 	defer db.versionMu.Unlock()
+
+	// NOTE: taking ownership of old version's refs
+	old := db.currentVersion
+	// Assigning the new version
 	db.currentVersion = v
+
+	// Releases the old version
+	old.Release()
 }
 
 // Get the current version and increment its reference count
