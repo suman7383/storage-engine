@@ -56,7 +56,7 @@ func CreateTestSSTable(t *testing.T, entries []Entry, blockSize int) *sstable.Ss
 	}
 
 	// Open the SSTable for reading.
-	reader, err := sstable.NewSstReader(f, fStat.Size(), smK, lgK)
+	reader, err := sstable.NewSstReader(f, fStat.Size(), "0", smK, lgK)
 	if err != nil {
 		t.Fatalf("sstabletest: failed to create sst reader: %v", err)
 	}

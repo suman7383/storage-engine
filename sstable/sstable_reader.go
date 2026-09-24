@@ -17,6 +17,8 @@ type SstReader struct {
 	fd       *os.File
 	fileSize int64
 
+	fileId string
+
 	indexBuf     []byte
 	indexEntries []readerIndexEntries
 	indexOffset  uint64
@@ -32,7 +34,7 @@ type SstReader struct {
 }
 
 // Creates and initializes(parses footer, index) the sst reader.
-func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalkey.InternalKey) (*SstReader, error) {
+func NewSstReader(fd *os.File, fileSize int64, fileId string, smallestKey, largestKey internalkey.InternalKey) (*SstReader, error) {
 	log.Printf("[SST READER] smallestKey: %v, largestKey: %v",
 		string(smallestKey.UserKey()),
 		string(largestKey.UserKey()))
@@ -40,15 +42,13 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 	s := &SstReader{
 		fd:       fd,
 		fileSize: fileSize,
+		fileId:   fileId,
 
 		smallestKey: smallestKey,
 		largestKey:  largestKey,
 
 		IsClosed: false,
 	}
-
-	// Start with one owner(whoever called NewSstReader)
-	s.refs.Store(1)
 
 	indexEntryCount, indexOffset, indexSize, err := s.readFooter()
 	if err != nil {
@@ -65,6 +65,9 @@ func NewSstReader(fd *os.File, fileSize int64, smallestKey, largestKey internalk
 	// 	k := internalkey.InternalKey(s.indexBuf[e.keyStart : e.keyStart+e.keyLen])
 	// 	log.Printf("[SST READER] index entry info. largestKey: %v, blockOffset: %v", string(k.UserKey()), e.blockOffset)
 	// }
+
+	// Start with one owner(whoever called NewSstReader)
+	s.refs.Store(1)
 
 	return s, nil
 }
@@ -322,4 +325,8 @@ func (s *SstReader) Release() {
 	if s.refs.Add(^uint32(0)) == 0 {
 		s.Close()
 	}
+}
+
+func (s *SstReader) GetFileId() string {
+	return s.fileId
 }

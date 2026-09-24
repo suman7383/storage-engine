@@ -238,7 +238,7 @@ func (db *DB) discoverSSTs() (maxSeq uint64) {
 			log.Fatalf("could not Get SST file size: %v", err)
 		}
 
-		sstReader, err := sstable.NewSstReader(fd, fSize.Size(), sstRec.SmallestKey, sstRec.LargestKey)
+		sstReader, err := sstable.NewSstReader(fd, fSize.Size(), sstRec.FileID, sstRec.SmallestKey, sstRec.LargestKey)
 		if err != nil {
 			log.Fatalf("could not create SST file reader: %v", err)
 		}
@@ -573,12 +573,13 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 
 	// Update the nextSstID atomically
 	nextSstID := atomic.AddInt64(&db.nextSstID, 1)
+	fileId := fmt.Sprintf("%06d", nextSstID-1)
 
 	// Update manifest
 	db.manifest.Add(ManifestRecord{
 		Operation:   Add,
 		Level:       0,
-		FileID:      fmt.Sprintf("%06d", nextSstID-1),
+		FileID:      fileId,
 		SmallestKey: smKey,
 		LargestKey:  lgKey,
 		LastSeq:     atomic.LoadUint64(&db.nextSeq) - 1,
@@ -598,7 +599,7 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 	// Release the current version
 	currentVer.Release()
 
-	db.appendSstReaderToLevel(clonedVersion, finalSstFiletPath, smKey, lgKey)
+	db.appendSstReaderToLevel(clonedVersion, fileId, finalSstFiletPath, smKey, lgKey)
 
 	// Install new version
 	db.installVersion(clonedVersion)
@@ -610,7 +611,7 @@ func (db *DB) flushToSST(memtable *memtable.Memtable) error {
 }
 
 // Appends sst reader to level 0
-func (db *DB) appendSstReaderToLevel(v *Version, finalSstFiletPath string, smallestKey, largestKey []byte) {
+func (db *DB) appendSstReaderToLevel(v *Version, fileId string, finalSstFiletPath string, smallestKey, largestKey []byte) {
 	fd, err := os.OpenFile(finalSstFiletPath, os.O_RDONLY, 0644)
 	if err != nil {
 		log.Fatal("Error opening SST file:", err)
@@ -621,7 +622,7 @@ func (db *DB) appendSstReaderToLevel(v *Version, finalSstFiletPath string, small
 		log.Fatal("Error getting SST file size:", err)
 	}
 
-	sr, err := sstable.NewSstReader(fd, fSize.Size(), smallestKey, largestKey)
+	sr, err := sstable.NewSstReader(fd, fSize.Size(), fileId, smallestKey, largestKey)
 	if err != nil {
 		log.Fatal("Error creating SST reader:", err)
 	}
@@ -673,4 +674,8 @@ func (db *DB) cleanupWAL() {
 		db.walSegments = db.walSegments[k-1:] // k points to the current wal to keep(so we take k-1)
 		db.mu.Unlock()
 	}
+}
+
+func (db *DB) GetStorageDir() string {
+	return db.storageDir
 }
